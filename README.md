@@ -190,3 +190,7 @@ VSIXにはコンパイル済みJavaScript、ノート一覧用のスクリプト
 設計時の画面イメージです。現在のビュー名や表示は上記の説明を参照してください。
 
 ![設計時の画面イメージ](画面イメージ.png)
+
+## Marketplaceへの公開・更新
+
+GitHub Actionsでテスト・VSIX作成・公開を行えます。Publisher IDは `mtfuji` です。初回の認証設定と公開手順は [公開手順](docs/publishing.md) を参照してください。

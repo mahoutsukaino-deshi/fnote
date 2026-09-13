@@ -1,0 +1,11 @@
+'use strict';
+const assert = require('node:assert/strict');
+const manifest = require('../package.json');
+const lock = require('../package-lock.json');
+const tag = process.env.RELEASE_TAG;
+assert.match(tag || '', /^v\d+\.\d+\.\d+$/, 'Release tag must be vMAJOR.MINOR.PATCH');
+assert.equal(tag, `v${manifest.version}`, 'Tag must match package.json version');
+assert.equal(lock.version, manifest.version, 'package-lock.json version must match');
+assert.equal(lock.packages[''].version, manifest.version, 'Lockfile root version must match');
+assert.ok(manifest.publisher, 'Set the registered Marketplace publisher ID');
+console.log(`Validated ${manifest.publisher}.${manifest.name} ${manifest.version}`);

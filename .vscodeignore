@@ -1,0 +1,7 @@
+**
+!package.json
+!README.md
+!dist/core.js
+!dist/extension.js
+!dist/notesView.js
+!media/notes.js

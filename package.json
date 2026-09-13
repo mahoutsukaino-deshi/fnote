@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "description": "階層ノートとタグでMarkdownメモを整理します。",
   "version": "0.1.0",
-  "publisher": "fnote-local",
+  "publisher": "mtfuji",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -20,7 +20,8 @@
     "test": "npm run build && node --test",
     "check": "tsc -p . --noEmit && node --check media/notes.js",
     "package": "npm run build && python3 scripts/package.py",
-    "vscode:prepublish": "npm run build"
+    "vscode:prepublish": "npm run build",
+    "package:marketplace": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vsce package --no-dependencies --skip-license --githubBranch main --out artifacts/fnote.vsix"
   },
   "contributes": {
     "views": {
@@ -211,6 +212,11 @@
   "devDependencies": {
     "@types/node": "20.17.19",
     "@types/vscode": "1.85.0",
+    "@vscode/vsce": "3.9.2",
     "typescript": "5.7.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mahoutsukaino-deshi/fnote.git"
   }
 }

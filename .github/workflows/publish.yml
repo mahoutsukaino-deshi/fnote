@@ -1,0 +1,97 @@
+name: Publish extension
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag (example: v0.1.0)'
+        required: true
+        type: string
+      publish:
+        description: 'Publish to Visual Studio Marketplace (false = build only)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publish
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Validate tag format
+        run: |
+          node -e 'if (!/^v\d+\.\d+\.\d+$/.test(process.env.RELEASE_TAG)) throw new Error("Use a stable version tag such as v0.1.0")'
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Validate release version
+        run: node scripts/check-release.cjs
+      - run: npm ci --include=dev
+      - run: npm run check
+      - run: npm test
+      - run: npm run package:marketplace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-vsix
+          path: artifacts/fnote.vsix
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: marketplace
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --include=dev
+      - uses: actions/download-artifact@v4
+        with:
+          name: marketplace-vsix
+          path: artifacts
+      - name: Sign in to Azure using workload identity
+        if: vars.MARKETPLACE_AUTH == 'azure'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+      - name: Publish using Microsoft Entra ID
+        if: vars.MARKETPLACE_AUTH == 'azure'
+        run: npx --no-install vsce publish --packagePath artifacts/fnote.vsix --azure-credential
+      - name: Publish using PAT
+        if: vars.MARKETPLACE_AUTH != 'azure'
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo '::error::Set the VSCE_PAT secret in the marketplace environment.'
+            exit 1
+          fi
+          npx --no-install vsce publish --packagePath artifacts/fnote.vsix

@@ -21,3 +21,9 @@ Thumbs.db
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Marketplace package output
+artifacts/
+
+# Documents
+docs/

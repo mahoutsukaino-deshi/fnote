@@ -1,0 +1,216 @@
+{
+  "name": "fnote",
+  "displayName": "fnote",
+  "description": "階層ノートとタグでMarkdownメモを整理します。",
+  "version": "0.1.0",
+  "publisher": "fnote-local",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "build": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "test": "npm run build && node --test",
+    "check": "tsc -p . --noEmit && node --check media/notes.js",
+    "package": "npm run build && python3 scripts/package.py",
+    "vscode:prepublish": "npm run build"
+  },
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "fnote.notes",
+          "name": "fnote - list",
+          "icon": "$(notebook)",
+          "type": "webview"
+        },
+        {
+          "id": "fnote.tags",
+          "name": "fnote - tags",
+          "icon": "$(tag)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "fnote.add",
+        "title": "fnote: ノートを追加",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fnote.addChild",
+        "title": "fnote: 子ノートを追加",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "fnote.rename",
+        "title": "fnote: 名前を変更"
+      },
+      {
+        "command": "fnote.move",
+        "title": "fnote: 移動"
+      },
+      {
+        "command": "fnote.up",
+        "title": "fnote: 上へ並べ替え"
+      },
+      {
+        "command": "fnote.down",
+        "title": "fnote: 下へ並べ替え"
+      },
+      {
+        "command": "fnote.delete",
+        "title": "fnote: 削除",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fnote.refresh",
+        "title": "fnote: 更新",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "fnote.search",
+        "title": "fnote: ノートを検索",
+        "icon": "$(search)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fnote.add",
+          "when": "view == fnote.notes",
+          "group": "navigation@1"
+        },
+        {
+          "command": "fnote.refresh",
+          "when": "view == fnote.notes",
+          "group": "navigation@2"
+        },
+        {
+          "command": "fnote.search",
+          "when": "view == fnote.notes",
+          "group": "navigation@0"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "fnote",
+      "properties": {
+        "fnote.storagePath": {
+          "type": "string",
+          "default": "~/.fnote",
+          "scope": "machine",
+          "description": "全ワークスペース共通の保存先。ユーザー設定に絶対パスまたは ~/ から始まるパスを指定してください。空文字は拡張機能の個人保存領域を使用します。変更後はウィンドウを再読み込みしてください。既存ノートは自動移行しません。"
+        },
+        "fnote.untaggedNoteMark": {
+          "type": "string",
+          "default": "🗒️",
+          "description": "通常タグがないノート（日付・時刻タグのみの場合を含む）に表示する印。文字・絵文字を指定できます。空文字で非表示になります。"
+        },
+        "fnote.defaultTagMark": {
+          "type": "string",
+          "default": "🏷️",
+          "description": "タグ一覧で印が未設定または空のタグに表示する印。文字・絵文字を指定できます。空文字で非表示になります。"
+        },
+        "fnote.tagColor": {
+          "type": "string",
+          "default": "#00BFFF",
+          "description": "タグの既定色。",
+          "format": "color"
+        },
+        "fnote.tagStyles": {
+          "type": [
+            "array",
+            "object"
+          ],
+          "default": [
+            {
+              "tag": "TODO",
+              "mark": "🔴",
+              "color": "#00BFFF"
+            },
+            {
+              "tag": "バラード",
+              "mark": "🔵"
+            },
+            {
+              "tag": "ロック",
+              "mark": "🟡"
+            }
+          ],
+          "items": {
+            "type": "object",
+            "required": [
+              "tag"
+            ],
+            "properties": {
+              "tag": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mark": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "format": "color"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "description": "このタグの背景色。空文字で背景色なし。",
+                "format": "color"
+              }
+            },
+            "additionalProperties": false
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "mark": {
+                "type": "string"
+              },
+              "color": {
+                "type": "string",
+                "format": "color"
+              },
+              "backgroundColor": {
+                "type": "string",
+                "format": "color"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、color、backgroundColorを指定。親タグの設定は子タグにも適用。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
+        },
+        "fnote.tagBackgroundColor": {
+          "type": "string",
+          "default": "",
+          "description": "タグの既定の背景色。空文字は背景色なし。本文エディタと検索結果に適用します。",
+          "format": "color"
+        }
+      }
+    },
+    "viewsWelcome": [
+      {
+        "view": "fnote.notes",
+        "contents": "Markdownでメモを始めましょう。\n[ノートを追加](command:fnote.add)"
+      },
+      {
+        "view": "fnote.tags",
+        "contents": "本文に @TODO や @2026/09/01 を入力すると表示されます。"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "20.17.19",
+    "@types/vscode": "1.85.0",
+    "typescript": "5.7.3"
+  }
+}

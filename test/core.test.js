@@ -1,0 +1,211 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { formatWorkMinutes, timeTagMinutes, minutesForDate, isTimeTag, planNoteDrop, searchNotes, parseTags, noteMark, matchingLines, matchingHeadings, tagTree, filterTree, styleFor, within, validateName, escapeHtml } = require('../dist/core');
+const tags = text => parseTags(text).map(t => t.tag);
+test('日本語・日付・TODO・句読点・メール・エスケープ', () => {
+  assert.deepEqual(tags('🔴 @TODO @バラード。 @2026/09/01\na@b.com \\@hidden @@no @a-b_c'), ['TODO', 'バラード', '2026/09/01', 'a-b_c']);
+  const text = '🎵 @音楽'; const match = parseTags(text)[0];
+  assert.equal(text.slice(match.start, match.end), '@音楽');
+});
+test('Markdownと仕様の引用符コードを除外する', () => {
+  assert.deepEqual(tags("@yes `@no` ``@no ` @no`` '@no'\n```js\n@no\n```\n~~~\n@no\n~~~\n'''\n@no\n'''\n    @no\n\t@no\n@last"), ['yes', 'last']);
+  assert.deepEqual(tags('`code\n@hidden` @shown'), ['shown']);
+  assert.deepEqual(tags('``@hidden ` @hidden`` @shown'), ['shown']);
+  assert.deepEqual(tags('```\n@hidden'), []);
+});
+test('タグ階層の重複排除と親タグ検索で祖先ノートを維持', () => {
+  const notes = [
+    { id: '音楽', tags: [] }, { id: '音楽/曲', tags: parseTags('@2026/09/01 @2026/09/01') },
+    { id: '別', tags: parseTags('@20260') }
+  ];
+  const tree = tagTree(notes);
+  assert.equal(tree.get('2026').children.get('09').children.size, 1);
+  assert.deepEqual(filterTree(notes, '2026').map(n => n.id), ['音楽', '音楽/曲']);
+});
+test('タグ設定の継承と完全一致優先', () => {
+  const styles = { '2026': { mark: '📅' }, '2026/09': { color: '#fff' } };
+  assert.deepEqual(styleFor('2026/09/01', styles), { color: '#fff' });
+  assert.deepEqual(styleFor('2026/10', styles), { mark: '📅' });
+  assert.deepEqual(styleFor('toString', styles), {});
+});
+test('安全な名前・移動境界・HTMLエスケープ', () => {
+  for (const name of ['', '..', '../a', 'a/b', 'a\\b', 'CON', 'a.', ' a']) assert.ok(validateName(name), name);
+  assert.equal(validateName('安静'), undefined);
+  assert.equal(within('a/b', 'a'), true); assert.equal(within('ab', 'a'), false);
+  assert.equal(escapeHtml('<script>"&'), '&lt;script&gt;&quot;&amp;');
+});
+
+test('タグ検索で本文の見出しを3階層表示する（報告例）', () => {
+  const text = '# タイトル1\n## タイトル1-1\n### タイトル1-1-1\n@TODO あれ\n';
+  const tree = matchingHeadings(text, 'TODO');
+  assert.equal(tree.length, 1);
+  assert.equal(tree[0].title, 'タイトル1');
+  assert.equal(tree[0].matched, false);
+  assert.equal(tree[0].children[0].title, 'タイトル1-1');
+  const leaf = tree[0].children[0].children[0];
+  assert.equal(leaf.title, 'タイトル1-1-1');
+  assert.equal(leaf.matched, true);
+  assert.equal(text.slice(leaf.start).split('\n')[0], '### タイトル1-1-1');
+});
+test('検索見出しはコードと無関係な節を除外し、複数の一致を保持', () => {
+  const text = '# 親\n### 同名\n@2026/09/01\n## 対象外\n@OTHER\n## 同名\n```md\n# コードの見出し\n@2026/09/02\n```\n@2026/10/01';
+  const tree = matchingHeadings(text, '2026');
+  assert.deepEqual(tree[0].children.map(n => n.title), ['同名', '同名']);
+  assert.notEqual(tree[0].children[0].start, tree[0].children[1].start);
+  assert.equal(tree[0].children[1].matched, true);
+  assert.equal(tree[0].children[1].children.length, 0);
+  assert.equal(matchingHeadings(text, '20260').length, 0);
+});
+test('見出し以前のタグは無関係な見出しを表示しない', () => {
+  assert.deepEqual(matchingHeadings('@TODO\n# 対象外\n本文', 'TODO'), []);
+  assert.deepEqual(matchingHeadings('@TODO 本文のみ', 'TODO'), []);
+});
+test('CRLF・絵文字・閉じるハッシュ・見出し上のタグ', () => {
+  const text = '🎵\r\n# 親\r\n###### 子 @TODO ###\r\n本文';
+  const child = matchingHeadings(text, 'TODO')[0].children[0];
+  assert.equal(child.title, '子 @TODO');
+  assert.equal(child.matched, true);
+  assert.equal(child.start, text.indexOf('######'));
+});
+
+test('TODO本文を行単位で抽出し、同じ行を重複表示しない', () => {
+  const text = '@TODO 冒頭\r\n# 見出し\r\n- @TODO あれ @TODO これ\r\n`@TODO 非表示`\r\n```\r\n@TODO コード\r\n```\r\n@TODO 最後';
+  const lines = matchingLines(text, 'TODO');
+  assert.deepEqual(lines.map(line => line.text), ['@TODO 冒頭', '- @TODO あれ @TODO これ', '@TODO 最後']);
+  for (const line of lines) assert.ok(text.slice(line.start).startsWith(line.text));
+  const heading = matchingHeadings(text, 'TODO')[0];
+  assert.deepEqual(heading.lines.map(line => line.text), ['- @TODO あれ @TODO これ', '@TODO 最後']);
+});
+test('本文を正しい見出しに割り当て、親タグでも表示する', () => {
+  const text = '# 親\n@2026/09/01 開始\n## 子\n@2026/09/02 続き';
+  const [parent] = matchingHeadings(text, '2026');
+  assert.deepEqual(parent.lines.map(line => line.text), ['@2026/09/01 開始']);
+  assert.deepEqual(parent.children[0].lines.map(line => line.text), ['@2026/09/02 続き']);
+});
+
+test('ノートの印は本文順ではなく設定順で1つだけ選ぶ', () => {
+  const tags = parseTags('@ロック @TODO @TODO');
+  assert.equal(noteMark(tags, { TODO: { mark: '🔴' }, ロック: { mark: '🟡' } }, '🗒️'), '🔴');
+  assert.equal(noteMark(tags, { ロック: { mark: '🟡' }, TODO: { mark: '🔴' } }, '🗒️'), '🟡');
+  assert.equal(noteMark(tags, { TODO: { color: '#fff' }, ロック: { mark: '🟡' } }, '🗒️'), '🟡');
+  assert.equal(noteMark([], {}, '🗒️'), '🗒️');
+  assert.equal(noteMark(tags, {}, '🗒️'), '');
+});
+test('階層タグは有効な最寄りの設定の順序で印を選ぶ', () => {
+  const styles = { date: { mark: '📅' }, TODO: { mark: '🔴' }, 'date/day': { mark: '◆' } };
+  assert.equal(noteMark(parseTags('@date/month @TODO'), styles, ''), '📅');
+  assert.equal(noteMark(parseTags('@date/day @TODO'), styles, ''), '🔴');
+});
+
+test('設定がアクセスごとに別オブジェクトを返してもノートの印を表示する', () => {
+  const values = { TODO: { mark: '🔴' }, FIX: { mark: '🐞' } };
+  const settings = new Proxy(values, { get: (target, key) => ({ ...target[key] }) });
+  assert.notEqual(settings.TODO, settings.TODO);
+  assert.equal(noteMark(parseTags('@FIX @TODO'), settings, '🗒️'), '🔴');
+  assert.equal(styleFor('FIX', settings).mark, '🐞');
+});
+
+test('配列の定義順は数字だけのタグがあっても維持する', () => {
+  const styles = [{ tag: 'TODO', mark: '🔴' }, { tag: 'FIX', mark: '🐞' }, { tag: '2026', mark: '📅' }];
+  const tags = parseTags('@2026/09/12 @FIX @TODO');
+  assert.equal(noteMark(tags, styles, ''), '🔴');
+  assert.equal(noteMark(tags, [...styles].reverse(), ''), '🐞');
+  assert.equal(noteMark(parseTags('@FIX @2026'), styles, ''), '🐞');
+  assert.equal(styleFor('2026/09', styles).mark, '📅');
+  assert.equal(styleFor('TODO', styles).mark, '🔴');
+});
+test('重複定義は印と色の両方で先頭を優先する', () => {
+  const styles = [{ tag: 'TODO', color: '#fff' }, { tag: 'TODO', mark: '🔴' }, { tag: 'FIX', mark: '🐞' }];
+  assert.equal(noteMark(parseTags('@TODO @FIX'), styles, ''), '🐞');
+  assert.deepEqual(styleFor('TODO', styles), styles[0]);
+});
+
+test('ノート検索は名前・本文を部分一致で探し、該当行の位置を保持する', () => {
+  const note = { id: '親/メモ', parent: '親', name: 'メモ', text: '🎵\r\nHello World\r\n```\nHELLO code\n```', tags: [] };
+  assert.equal(searchNotes([note], 'メモ')[0].note, note);
+  const [hit] = searchNotes([note], ' hello ');
+  assert.deepEqual(hit.lines.map(line => line.text), ['Hello World', 'HELLO code']);
+  assert.equal(hit.lines[0].start, note.text.indexOf('Hello'));
+  assert.equal(hit.lines[1].start, note.text.indexOf('HELLO'));
+  assert.deepEqual(searchNotes([note], ''), []);
+  assert.deepEqual(searchNotes([note], 'no match'), []);
+  assert.deepEqual(searchNotes([note], '.*'), []);
+});
+
+test('ドロップの前後挿入は兄弟の順序と子ノートを保持する', () => {
+  const notes = ['A', 'A/子', 'B', 'C'].map(id => ({ id, name: id.split('/').at(-1), parent: id.includes('/') ? 'A' : '', text: '', tags: [] }));
+  assert.deepEqual(planNoteDrop(notes, 'C', 'A', 'before').order, ['C', 'A', 'A/子', 'B']);
+  assert.deepEqual(planNoteDrop(notes, 'A', 'B', 'after').order, ['B', 'A', 'A/子', 'C']);
+  assert.equal(planNoteDrop(notes, 'B', 'A/子', 'before').destination, 'A/B');
+  assert.equal(planNoteDrop(notes, 'B', 'A', 'inside').destination, 'A/B');
+  assert.equal(planNoteDrop(notes, 'A/子', undefined, 'inside').destination, '子');
+  assert.throws(() => planNoteDrop(notes, 'A', 'A/子', 'after'), /子ノート/);
+  assert.throws(() => planNoteDrop(notes, 'A', 'A', 'before'), /自分自身/);
+  assert.throws(() => planNoteDrop(notes, 'A', 'missing', 'before'), /見つかりません/);
+  const duplicate = [...notes, { id: 'B/子', name: '子', parent: 'B', text: '', tags: [] }];
+  assert.throws(() => planNoteDrop(duplicate, 'A/子', 'B', 'inside'), /同名/);
+});
+
+test('時刻範囲のタグ全体を認識し、同じ行の複数の時間帯に対応する', () => {
+  const text = '@2026/09/13 @10:30-12:00 @14:00-14:45 @23:30-24:00';
+  const parsed = parseTags(text);
+  assert.deepEqual(parsed.map(t => t.tag), ['2026/09/13', '10:30-12:00', '14:00-14:45', '23:30-24:00']);
+  for (const tag of parsed) assert.equal(text.slice(tag.start, tag.end), '@' + tag.tag);
+  const tree = tagTree([{ id: 'note', tags: parsed }]);
+  assert.equal(tree.has('10:30-12:00'), false);
+  assert.deepEqual([...tree.keys()], ['2026']);
+  assert.equal(tree.get('2026').children.get('09').children.get('13').tag, '2026/09/13');
+  assert.equal(tagTree([{ id: 'time-only', tags: parseTags('@10:30-12:00') }]).size, 0);
+  assert.equal(tree.has('10'), false);
+  assert.equal(matchingLines(text, '10:30-12:00').length, 1);
+  assert.deepEqual(parseTags('`@10:30-12:00`\n```\n@14:00-14:45\n```'), []);
+});
+
+test('分・時間のタグを時刻タグとして扱い、一覧から除外する', () => {
+  const text = '@2026/09/13 @10m @1h @90m @TODO';
+  const parsed = parseTags(text);
+  assert.deepEqual(parsed.map(tag => tag.tag), ['2026/09/13', '10m', '1h', '90m', 'TODO']);
+  for (const tag of parsed) assert.equal(text.slice(tag.start, tag.end), '@' + tag.tag);
+  assert.deepEqual([...tagTree([{ id: 'note', tags: parsed }]).keys()], ['2026', 'TODO']);
+  for (const tag of ['10m', '1h', '90m', '10:30-12:00']) assert.equal(isTimeTag(tag), true);
+  for (const tag of ['10minutes', '1hour', '10m/task', 'TODO', '2026/09/13']) assert.equal(isTimeTag(tag), false);
+  assert.deepEqual(parseTags('`@10m`\n```\n@1h\n```'), []);
+  assert.equal(matchingLines(text, '10m')[0].text, text);
+});
+
+test('日付・時刻タグはノートの印の候補にしない', () => {
+  const styles = [{ tag: '2026', mark: '📅' }, { tag: '10:30-12:00', mark: '⏰' }, { tag: '10m', mark: '⏱️' }, { tag: '1h', mark: '⌛' }, { tag: 'TODO', mark: '🔴' }];
+  const special = '@2026/09/13 @10:30-12:00 @10m @1h';
+  assert.equal(noteMark(parseTags(special), styles, '🗒️'), '🗒️');
+  assert.equal(noteMark(parseTags(special), styles, '📝'), '📝');
+  assert.equal(noteMark(parseTags(special), styles, ''), '');
+  assert.equal(noteMark(parseTags(special + ' @TODO'), styles, '🗒️'), '🔴');
+  assert.equal(noteMark([], styles, '🗒️'), '🗒️');
+  assert.equal(styleFor('2026/09/13', styles).mark, '📅');
+});
+
+test('日付タグの作業時間を最下位の見出しごとに合計する', () => {
+  const text = '# 作業\n## A\n@2026/09/13 @10:30-12:00 @10m\n@2026/09/13 @1h\n@2026/09/14 @4h\n## B\n@2026/09/13 @15m';
+  const [root] = matchingHeadings(text, '2026/09/13');
+  assert.equal(minutesForDate(text, root.lines, '2026/09/13'), undefined);
+  assert.equal(minutesForDate(text, root.children[0].lines, '2026/09/13'), 160);
+  assert.equal(minutesForDate(text, root.children[1].lines, '2026/09/13'), 15);
+  assert.equal(minutesForDate(text, root.children[0].lines, 'TODO'), undefined);
+});
+test('日付と時刻は同じ行だけを集計し、コード・曖昧な日付・不正時刻を除外', () => {
+  const text = '@2026/09/13 @10m `@2h`\n@1h\n@2026/09/13 @2026/09/14 @3h\n@2026/09/13 @25:00-26:00\n```\n@2026/09/13 @4h\n```';
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09/13'), '2026/09/13'), 10);
+  assert.equal(timeTagMinutes('23:30-24:00'), 30);
+  assert.equal(timeTagMinutes('12:00-10:00'), undefined);
+  assert.equal(timeTagMinutes('10:60-12:00'), undefined);
+  assert.equal(timeTagMinutes('23:00-24:01'), undefined);
+  assert.equal(timeTagMinutes('1h'), 60);
+  assert.equal(timeTagMinutes('0m'), 0);
+});
+
+test('合計時間をh・m形式で表示する', () => {
+  for (const [minutes, expected] of [[0, '0m'], [30, '30m'], [60, '1h'], [90, '1h30m'], [160, '2h40m']]) {
+    assert.equal(formatWorkMinutes(minutes), expected);
+  }
+});

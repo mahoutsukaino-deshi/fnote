@@ -1,0 +1,244 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const os = require('node:os');
+const path = require('node:path');
+const Module = require('node:module');
+
+test('拡張機能: 保存・再読込・子ノート移動・循環防止・検索・削除', async () => {
+  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'fnote-test-'));
+  const commands = new Map(), views = new Map(), errors = [], inputs = [], picks = [];
+  const disposable = () => ({ dispose() {} });
+  const uri = p => ({ fsPath: p, toString: () => `file://${p}` });
+  const fileError = e => { if (e.code === 'ENOENT') e.code = 'FileNotFound'; throw e; };
+  let html = '', panelCount = 0, receiveMessage, shown;
+  const documents = [];
+  const editorStyles = [];
+  const settings = new Map();
+  const api = {
+    Uri: { file: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
+    FileType: { File: 1, Directory: 2 }, TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 }, ViewColumn: { Active: -1 },
+    Range: class { constructor(start, end) { Object.assign(this, { start, end }); } },
+    TreeItem: class { constructor(label, collapsibleState) { Object.assign(this, { label, collapsibleState }); } },
+    EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
+    RelativePattern: class {}, DataTransferItem: class { constructor(value) { this.value = value; } },
+    WorkspaceEdit: class { ops = []; renameFile(a, b) { this.ops.push(() => fs.rename(a.fsPath, b.fsPath)); } deleteFile(a) { this.ops.push(() => fs.rm(a.fsPath, { recursive: true })); } },
+    commands: { registerCommand(name, fn) { commands.set(name, fn); return disposable(); } },
+    workspace: {
+      workspaceFolders: [{ uri: uri(temp) }], textDocuments: documents,
+      getConfiguration: () => ({ inspect: key => ({ globalValue: settings.get(key) }), get: (key, fallback) => settings.has(key) ? settings.get(key) : fallback }),
+      fs: {
+        readDirectory: async u => (await fs.readdir(u.fsPath, { withFileTypes: true }).catch(fileError)).map(e => [e.name, e.isDirectory() ? 2 : 1]),
+        readFile: u => fs.readFile(u.fsPath).catch(fileError), writeFile: (u, data) => fs.writeFile(u.fsPath, data),
+        createDirectory: u => fs.mkdir(u.fsPath, { recursive: true }), stat: u => fs.stat(u.fsPath).catch(fileError)
+      },
+      applyEdit: async edit => { for (const op of edit.ops) await op(); return true; },
+      openTextDocument: async u => ({ uri: u, getText: () => '', positionAt: offset => ({ offset }) }),
+      createFileSystemWatcher: () => ({ ...disposable(), onDidCreate: disposable, onDidDelete: disposable, onDidChange: disposable }),
+      onDidChangeTextDocument: disposable, onDidCloseTextDocument: disposable, onDidChangeConfiguration: disposable
+    },
+    window: {
+      registerWebviewViewProvider: (id, provider) => { views.set(id, { treeDataProvider: provider.data, webviewProvider: provider }); return disposable(); },
+      createTextEditorDecorationType: options => ({ ...disposable(), options }),
+      visibleTextEditors: [], createTreeView: (id, options) => { const view = { ...disposable(), ...options, selection: [], reveal: async () => {} }; views.set(id, view); return view; },
+      showInputBox: async () => inputs.shift(), showQuickPick: async () => picks.shift(), showWarningMessage: async () => '削除',
+      showErrorMessage: message => errors.push(message), showTextDocument: async (doc, options) => { shown = { doc, options }; },
+      onDidChangeVisibleTextEditors: disposable, onDidChangeActiveTextEditor: disposable,
+      createWebviewPanel: () => { panelCount++; return { ...disposable(), reveal() {}, onDidDispose: disposable, webview: { set html(value) { html = value; }, onDidReceiveMessage: handler => { receiveMessage = handler; return disposable(); } } }; }
+    }
+  };
+  const original = Module._load;
+  Module._load = function(name, ...rest) { return name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => temp } : original.call(this, name, ...rest); };
+  const context = { extensionUri: uri(path.resolve(__dirname, '..')), subscriptions: [], globalState: { get: (_, fallback) => fallback, update: async () => {} }, globalStorageUri: uri(temp) };
+  try {
+    const { activate } = require('../dist/extension');
+    await activate(context);
+    const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);
+    const provider = views.get('fnote.notes').treeDataProvider;
+    inputs.push('音楽'); await run('add');
+    const parent = provider.getChildren()[0];
+    assert.equal(provider.getTreeItem(parent).label, '🗒️ 音楽');
+    settings.set('untaggedNoteMark', '📝');
+    assert.equal(provider.getTreeItem(parent).label, '📝 音楽');
+    settings.set('untaggedNoteMark', '');
+    assert.equal(provider.getTreeItem(parent).label, '音楽');
+    settings.delete('untaggedNoteMark');
+
+    inputs.push('曲'); await run('addChild', parent);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@TODO @2026/09/01');
+    await run('refresh');
+    let child = provider.getChildren(parent)[0];
+    assert.equal(provider.getTreeItem(child).label, '曲');
+    settings.set('tagStyles', { TODO: { mark: '🔴' } });
+    assert.equal(provider.getTreeItem(child).label, '🔴 曲');
+    settings.set('tagStyles', { '2026/09': { mark: '📅' }, TODO: { mark: '🔴' } });
+    assert.equal(provider.getTreeItem(child).label, '🔴 曲');
+    settings.set('tagStyles', { TODO: { mark: '🔴' }, '2026/09': { mark: '📅' } });
+    assert.equal(provider.getTreeItem(child).label, '🔴 曲');
+    settings.delete('tagStyles');
+    const tagProvider = views.get('fnote.tags').treeDataProvider;
+    const todo = tagProvider.getChildren().find(tag => tag.tag === 'TODO');
+    assert.equal(tagProvider.getTreeItem(todo).label, '🏷️ TODO');
+    settings.set('defaultTagMark', '◆');
+    assert.equal(tagProvider.getTreeItem(todo).label, '◆ TODO');
+    settings.set('defaultTagMark', '');
+    assert.equal(tagProvider.getTreeItem(todo).label, 'TODO');
+    settings.delete('defaultTagMark');
+    settings.set('tagStyles', { TODO: { mark: '🔴' }, '2026': { mark: '📅' } });
+    assert.equal(tagProvider.getTreeItem(todo).label, '🔴 TODO');
+    const year = tagProvider.getChildren().find(tag => tag.tag === '2026');
+    assert.equal(tagProvider.getTreeItem(tagProvider.getChildren(year)[0]).label, '📅 09');
+    settings.set('tagStyles', { TODO: { mark: '' } });
+    assert.equal(tagProvider.getTreeItem(todo).label, '🏷️ TODO');
+    settings.delete('tagStyles');
+
+    assert.equal((await fs.readFile(path.join(temp, '.fnote/音楽/index.md'), 'utf8')), '# 音楽\n\n');
+    await run('filter', '2026'); assert.equal(panelCount, 1); assert.match(html, /音楽/); assert.match(html, /曲/); assert.match(html, /1 件/);
+    // Exercise actual sidebar messages, including file moves and insertion order.
+    let sidebarMessage;
+    const sidebar = views.get('fnote.notes').webviewProvider;
+    sidebar.resolveWebviewView({ webview: {
+      asWebviewUri: value => value,
+      postMessage: async () => true,
+      onDidReceiveMessage: handler => { sidebarMessage = handler; return disposable(); }
+    } });
+    inputs.push('A'); await run('add'); inputs.push('B'); await run('add');
+    await sidebarMessage({ type: 'drop', id: 'B', target: 'A', position: 'before' });
+    const rootIds = provider.getChildren().map(n => n.id);
+    assert.ok(rootIds.indexOf('B') < rootIds.indexOf('A'));
+    await sidebarMessage({ type: 'drop', id: 'A', target: '音楽', position: 'inside' });
+    await sidebarMessage({ type: 'drop', id: 'B', target: '音楽/A', position: 'before' });
+    const childIds = provider.getChildren(parent).map(n => n.id);
+    assert.ok(childIds.indexOf('音楽/B') < childIds.indexOf('音楽/A'));
+    assert.equal(await fs.readFile(path.join(temp, '.fnote/音楽/B/index.md'), 'utf8'), '# B\n\n');
+    await sidebarMessage({ type: 'drop', id: '音楽', target: '音楽/B', position: 'before' });
+    assert.match(errors.pop(), /子ノート/);
+    await sidebarMessage({ type: 'drop', id: '音楽/B', position: 'inside' });
+    assert.equal(provider.getChildren().at(-1).id, 'B');
+    await run('delete', provider.getChildren().find(n => n.id === 'B'));
+    await run('delete', provider.getChildren(parent).find(n => n.id === '音楽/A'));
+    // Reproduce headings within one Markdown file, not separate note folders.
+    const body = '# タイトル1\n## タイトル1-1\n### タイトル1-1-1\n@TODO あれ\n## 対象外\n本文';
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), body);
+    await run('refresh');
+    await run('filter', 'TODO');
+    assert.match(html, /タイトル1<\/button><ul><li><button[^>]*>タイトル1-1<\/button><ul><li><button[^>]*class="match">タイトル1-1-1<\/button>/);
+    assert.doesNotMatch(html, /対象外/);
+    assert.match(html, /class="content"><span class="tag-color-\d+">@TODO<\/span> あれ<\/button>/);
+    await receiveMessage({ id: child.id, offset: body.indexOf('@TODO') });
+    assert.equal(shown.options.selection.start.offset, body.indexOf('@TODO'));
+
+    const offset = body.indexOf('###');
+    await receiveMessage({ id: child.id, offset });
+    assert.equal(shown.doc.uri.fsPath, path.join(temp, '.fnote/音楽/曲/index.md'));
+    assert.equal(shown.options.selection.start.offset, offset);
+    const lastShown = shown;
+    await receiveMessage({ id: child.id, offset: -1 });
+    assert.equal(shown, lastShown);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@TODO <script>alert("x")</script>');
+    await run('refresh');
+    assert.match(html, /class="content"><span class="tag-color-\d+">@TODO<\/span> &lt;script&gt;alert/);
+    assert.doesNotMatch(html, /<script>alert/);
+    inputs.push('ALERT'); await run('search');
+    assert.match(html, /検索: ALERT/);
+    assert.match(html, /data-id="音楽" class="ancestor"/);
+    assert.match(html, /class="content"><span class="tag-color-\d+">@TODO<\/span> &lt;script&gt;alert/);
+    await receiveMessage({ id: child.id, offset: 0 });
+    assert.equal(shown.options.selection.start.offset, 0);
+    const beforeCancel = html;
+    await run('search'); assert.equal(html, beforeCancel);
+    inputs.push('   '); await run('search'); assert.equal(html, beforeCancel);
+    inputs.push('一致しない単語'); await run('search');
+    assert.match(html, /0 件のノート/);
+    assert.match(html, /対象のノートはありません/);
+    inputs.push('曲'); await run('search');
+    assert.match(html, /1 件のノート/);
+    await run('filter', 'TODO');
+    assert.match(html, /<h1><span class="tag-color-\d+">@TODO<\/span><\/h1>/);
+
+    settings.set('tagStyles', [{ tag: 'TODO', color: '#FF4444' }, { tag: '2026', color: '#80CBC4' }]);
+    settings.set('tagColor', '#00BFFF');
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# @TODO 見出し\n- @TODO 本文 @2026/09/12 @OTHER\n```\n@TODO コード\n```');
+    await run('refresh');
+    assert.match(html, /\.tag-color-\d+\{color:#FF4444\}/);
+    assert.match(html, /\.tag-color-\d+\{color:#80CBC4\}/);
+    assert.match(html, /\.tag-color-\d+\{color:#00BFFF\}/);
+    assert.match(html, /<span class="tag-color-\d+">@TODO<\/span> 見出し/);
+    inputs.push('@TODO'); await run('search');
+    assert.match(html, /class="content">@TODO コード<\/button>/);
+    assert.match(html, /class="content">- <span class="tag-color-\d+">@TODO<\/span> 本文/);
+
+    settings.set('tagStyles', [{ tag: 'TODO', color: '#FFFFFF', backgroundColor: '#402020' }, { tag: '2026', color: '#FFFFFF', backgroundColor: '' }]);
+    settings.set('tagBackgroundColor', '#123456');
+    const editorText = '@TODO @2026/09/12 @OTHER';
+    api.window.visibleTextEditors = [{
+      document: { uri: uri(path.join(temp, '.fnote/音楽/曲/index.md')), getText: () => editorText, positionAt: offset => ({ offset }) },
+      setDecorations: (decoration, ranges) => editorStyles.push({ ...decoration.options, ranges })
+    }];
+    await run('refresh');
+    assert.match(html, /color:#FFFFFF;background-color:#402020/);
+    assert.match(html, /color:#FFFFFF\}/);
+    assert.match(html, /background-color:#123456/);
+    assert.ok(editorStyles.some(style => style.color === '#FFFFFF' && style.backgroundColor === '#402020'));
+    assert.ok(editorStyles.some(style => style.color === '#FFFFFF' && style.backgroundColor === undefined));
+    assert.ok(editorStyles.some(style => style.backgroundColor === '#123456'));
+    api.window.visibleTextEditors = [];
+    settings.delete('tagBackgroundColor');
+    settings.delete('tagStyles'); settings.delete('tagColor');
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# 作業\n## 詳細\n@2026/09/13 @10:30-12:00 @10m\n@2026/09/13 @1h @TODO\n@2026/09/14 @8h');
+    await run('refresh'); await run('filter', '2026/09/13');
+    assert.match(html, /詳細<\/button><span class="work-time">\(2h40m\)<\/span>/);
+    assert.doesNotMatch(html, /作業<\/button><span class="work-time">/);
+    assert.equal((html.match(/class="work-time"/g) || []).length, 1);
+    await run('filter', 'TODO'); assert.doesNotMatch(html, /class="work-time"/);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@2026/09/13 @10m @TODO');
+    await run('refresh'); await run('filter', '2026/09/13');
+    assert.match(html, /曲<\/button><span class="work-time">\(10m\)<\/span>/);
+    // A tag on a grandchild must keep every ancestor and the matching leaf.
+    inputs.push('詳細'); await run('addChild', child);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/詳細/index.md'), '@深いタグ');
+    await run('refresh');
+    await run('filter', '深いタグ');
+    assert.match(html, /data-id="音楽" class="ancestor"/);
+    assert.match(html, /data-id="音楽\/曲" class="ancestor"/);
+    assert.match(html, /data-id="音楽\/曲\/詳細" class="match"/);
+    assert.match(html, /1 件/);
+    const grandchild = provider.getChildren(child)[0];
+    await run('delete', grandchild);
+    picks.push({ id: child.id }); await run('move', parent); assert.match(errors.pop(), /子ノート/);
+    picks.push({ id: '' }); await run('move', child); assert.equal(provider.getChildren().length, 2);
+    child = provider.getChildren().find(n => n.name === '曲');
+    inputs.push('音楽'); await run('rename', child); assert.match(errors.pop(), /同名/);
+    inputs.push('新しい曲'); await run('rename', child);
+    const renamed = provider.getChildren().find(n => n.name === '新しい曲');
+    assert.match(await fs.readFile(path.join(temp, '.fnote/新しい曲/index.md'), 'utf8'), /@TODO/);
+    await run('delete', renamed); assert.equal(provider.getChildren().length, 1);
+    assert.equal(errors.length, 0);
+    // Opening another workspace still reads the same global notes.
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
+    api.workspace.workspaceFolders = [{ uri: uri(path.join(temp, 'another-workspace')) }];
+    await activate(context);
+    assert.deepEqual(views.get('fnote.notes').treeDataProvider.getChildren().map(n => n.name), ['音楽']);
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
+    // A user-specified absolute directory is independent of the workspace, too.
+    const custom = path.join(temp, 'custom-notes');
+    settings.set('storagePath', custom);
+    await activate(context);
+    assert.equal(views.get('fnote.notes').treeDataProvider.getChildren().length, 0);
+    inputs.push('共通ノート'); await run('add');
+    assert.equal(await fs.readFile(path.join(custom, '共通ノート/index.md'), 'utf8'), '# 共通ノート\n\n');
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
+    api.workspace.workspaceFolders = undefined;
+    await activate(context);
+    assert.deepEqual(views.get('fnote.notes').treeDataProvider.getChildren().map(n => n.name), ['共通ノート']);
+    assert.equal(errors.length, 0);
+  } finally {
+    Module._load = original;
+    for (const subscription of context.subscriptions) subscription.dispose();
+    await fs.rm(temp, { recursive: true, force: true });
+  }
+});

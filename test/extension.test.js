@@ -118,6 +118,17 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(provider.getChildren().at(-1).id, 'B');
     await run('delete', provider.getChildren().find(n => n.id === 'B'));
     await run('delete', provider.getChildren(parent).find(n => n.id === '音楽/A'));
+    // The note name and its initial H1 share one title row (reported WAIT case).
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# 曲\n@WAIT 待つ\n## 内訳\n@WAIT 続き @2026/09/13 @10m');
+    await run('refresh'); await run('filter', 'WAIT');
+    assert.equal((html.match(/曲<\/button>/g) || []).length, 1);
+    assert.match(html, /class="content"><span class="tag-color-\d+">@WAIT<\/span> 待つ/);
+    assert.match(html, /内訳<\/button>/);
+    await run('filter', '2026/09/13');
+    assert.equal((html.match(/曲<\/button>/g) || []).length, 1);
+    assert.match(html, /曲<\/button><span class="work-time">\(10m\)<\/span>/);
+    assert.match(html, /内訳<\/button><span class="work-time">\(10m\)<\/span>/);
+
     // Reproduce headings within one Markdown file, not separate note folders.
     const body = '# タイトル1\n## タイトル1-1\n### タイトル1-1-1\n@TODO あれ\n## 対象外\n本文';
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), body);
@@ -156,6 +167,16 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(html, /1 件のノート/);
     await run('filter', 'TODO');
     assert.match(html, /<h1><span class="tag-color-\d+">@TODO<\/span><\/h1>/);
+
+    // A tagged heading is shown once, while its time still contributes to ancestors.
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# 作業\n## 詳細 @2026/09/13 @10m\n本文 @2026/09/13 @20m');
+    await run('refresh'); await run('filter', '2026/09/13');
+    assert.equal((html.match(/詳細/g) || []).length, 1);
+    assert.doesNotMatch(html, /class="content">##/);
+    assert.match(html, /class="content">本文/);
+    assert.match(html, /作業<\/button><span class="work-time">\(30m\)<\/span>/);
+    assert.match(html, /@10m<\/span><\/button><span class="work-time">\(30m\)<\/span>/);
+    await run('filter', 'TODO');
 
     settings.set('tagStyles', [{ tag: 'TODO', color: '#FF4444' }, { tag: '2026', color: '#80CBC4' }]);
     settings.set('tagColor', '#00BFFF');

@@ -218,7 +218,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       : minutesForDate(note.text, matchingLines(note.text, tag, note.tags), tag, note.tags)]));
     const noteMinutes = (id: string): number | undefined =>
       sumMinutes(subset.filter(note => within(note.id, id)).map(note => ownMinutes.get(note.id)));
-    const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading))}${contentBranch(id, heading.lines)}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
+    const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
     const noteContent = (note: Note): string => {
       if (activeQuery) return contentBranch(note.id, hitMap.get(note.id)?.lines ?? []);
       const headings = matchingHeadings(note.text, tag, note.tags);
@@ -228,6 +228,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       };
       collect(headings);
       const preamble = matchingLines(note.text, tag, note.tags).filter(line => !assigned.has(line.start));
+      // The initial H1 often repeats the note name created by add(). Render its
+      // contents directly under the note instead of adding another title row.
+      const first = headings[0];
+      const initialTitle = first && first.title === note.name
+        && note.text.slice(0, first.start).trim() === ''
+        && /^ {0,3}#[\t ]/.test(note.text.slice(first.start));
+      if (initialTitle) {
+        return contentBranch(note.id, preamble)
+          + contentBranch(note.id, first.lines.filter(line => line.start !== first.start))
+          + headingBranch(note.id, first.children)
+          + headingBranch(note.id, headings.slice(1));
+      }
       return contentBranch(note.id, preamble) + headingBranch(note.id, headings);
     };
     const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${h(marks(n))} ${h(n.name)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;

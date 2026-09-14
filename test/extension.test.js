@@ -189,8 +189,17 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# 作業\n## 詳細\n@2026/09/13 @10:30-12:00 @10m\n@2026/09/13 @1h @TODO\n@2026/09/14 @8h');
     await run('refresh'); await run('filter', '2026/09/13');
     assert.match(html, /詳細<\/button><span class="work-time">\(2h40m\)<\/span>/);
-    assert.doesNotMatch(html, /作業<\/button><span class="work-time">/);
-    assert.equal((html.match(/class="work-time"/g) || []).length, 1);
+    for (const title of ['作業', '曲', '音楽']) {
+      assert.ok(html.includes(`${title}</button><span class="work-time">(2h40m)</span>`));
+    }
+    assert.equal((html.match(/class="work-time"/g) || []).length, 4);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '@2026/09/13 @20m');
+    await fs.appendFile(path.join(temp, '.fnote/音楽/曲/index.md'), '\n## 別作業\n@2026/09/13 @20m');
+    await run('refresh');
+    assert.match(html, /作業<\/button><span class="work-time">\(3h\)<\/span>/);
+    assert.match(html, /曲<\/button><span class="work-time">\(3h\)<\/span>/);
+    assert.match(html, /音楽<\/button><span class="work-time">\(3h20m\)<\/span>/);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '');
     await run('filter', 'TODO'); assert.doesNotMatch(html, /class="work-time"/);
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@2026/09/13 @10m @TODO');
     await run('refresh'); await run('filter', '2026/09/13');

@@ -204,21 +204,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return renderTagText(text, ranges, classFor);
     };
     const contentBranch = (id: string, lines: ContentMatch[]): string => lines.length ? `<ul>${lines.map(line => `<li><button data-id="${h(id)}" data-offset="${line.start}" class="content">${fragment(id, line.start, line.text)}</button></li>`).join('')}</ul>` : '';
-    const timeLabel = (id: string, lines: ContentMatch[]): string => {
-      if (activeQuery) return '';
+    const timeLabel = (minutes: number | undefined): string =>
+      minutes === undefined ? '' : `<span class="work-time">(${formatWorkMinutes(minutes)})</span>`;
+    const sumMinutes = (values: (number | undefined)[]): number | undefined =>
+      values.reduce<number | undefined>((total, value) => value === undefined ? total : (total ?? 0) + value, undefined);
+    const headingLines = (heading: HeadingMatch): ContentMatch[] =>
+      [...heading.lines, ...heading.children.flatMap(headingLines)];
+    const headingMinutes = (id: string, heading: HeadingMatch): number | undefined => {
       const note = notes.find(note => note.id === id);
-      const minutes = note ? minutesForDate(note.text, lines, tag, note.tags) : undefined;
-      return minutes === undefined ? '' : `<span class="work-time">(${formatWorkMinutes(minutes)})</span>`;
+      return activeQuery || !note ? undefined : minutesForDate(note.text, headingLines(heading), tag, note.tags);
     };
-    const preambleLines = (note: Note): ContentMatch[] => {
-      const assigned = new Set<number>();
-      const collect = (nodes: HeadingMatch[]): void => {
-        for (const node of nodes) { node.lines.forEach(line => assigned.add(line.start)); collect(node.children); }
-      };
-      collect(matchingHeadings(note.text, tag, note.tags));
-      return matchingLines(note.text, tag, note.tags).filter(line => !assigned.has(line.start));
-    };
-    const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(id, heading.lines)}${contentBranch(id, heading.lines)}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
+    const ownMinutes = new Map(subset.map(note => [note.id, activeQuery ? undefined
+      : minutesForDate(note.text, matchingLines(note.text, tag, note.tags), tag, note.tags)]));
+    const noteMinutes = (id: string): number | undefined =>
+      sumMinutes(subset.filter(note => within(note.id, id)).map(note => ownMinutes.get(note.id)));
+    const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading))}${contentBranch(id, heading.lines)}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
     const noteContent = (note: Note): string => {
       if (activeQuery) return contentBranch(note.id, hitMap.get(note.id)?.lines ?? []);
       const headings = matchingHeadings(note.text, tag, note.tags);
@@ -230,7 +230,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const preamble = matchingLines(note.text, tag, note.tags).filter(line => !assigned.has(line.start));
       return contentBranch(note.id, preamble) + headingBranch(note.id, headings);
     };
-    const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${h(marks(n))} ${h(n.name)}</button>${timeLabel(n.id, preambleLines(n))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
+    const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${h(marks(n))} ${h(n.name)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
     const body = subset.length ? branch('') : '<p>対象のノートはありません。</p>';
     const titleHtml = activeQuery ? h(title) : renderTagText(title, parseTags(title), classFor);
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');

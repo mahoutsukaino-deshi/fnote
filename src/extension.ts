@@ -30,6 +30,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   let order = context.globalState.get<string[]>(`order:${root.toString()}`, []);
+  let tagOrder = context.globalState.get<string[]>(`tagOrder:${root.toString()}`, []);
   const events = new vscode.EventEmitter<void>();
   const tagEvents = new vscode.EventEmitter<void>();
   const guard = <Args extends unknown[], Result>(fn: (...args: Args) => Result) => async (...args: Args): Promise<Awaited<Result> | undefined> => {
@@ -56,9 +57,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return operation;
   });
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
-  const tags = vscode.window.createTreeView<TagNode>('fnote.tags', { showCollapseAll: true, treeDataProvider: {
+  const tagParent = (tag: string) => tag.slice(0, Math.max(0, tag.lastIndexOf('/')));
+  const sortedTags = (nodes: Iterable<TagNode>) => [...nodes].sort((a, b) => {
+    const ai = tagOrder.indexOf(a.tag), bi = tagOrder.indexOf(b.tag);
+    return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi)
+      || a.label.localeCompare(b.label, 'ja', { numeric: true });
+  });
+  let tagDropQueue = Promise.resolve();
+  const tagProvider: vscode.TreeDataProvider<TagNode> = {
     onDidChangeTreeData: tagEvents.event,
-    getChildren: n => [...(n?.children || tagTree(notes)).values()].sort((a, b) => a.label.localeCompare(b.label, 'ja', { numeric: true })),
+    getChildren: n => sortedTags((n?.children || tagTree(notes)).values()),
     getTreeItem: n => {
       const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark || config().get<string>('defaultTagMark', '🏷️');
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
@@ -67,7 +75,45 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       item.command = { command: 'fnote.filter', title: 'タグで検索', arguments: [n.tag] };
       return item;
     }
-  } });
+  };
+  const tags = new NotesView({
+    getChildren: () => [],
+    getTreeItem: note => {
+      const item = new vscode.TreeItem(note.name);
+      item.description = String(notes.filter(n => matchesTag(n, note.id)).length);
+      return item;
+    }
+  }, context.extensionUri, async (id, target, position) => {
+    const operation = tagDropQueue.catch(() => {}).then(async () => {
+      const parent = tagParent(id);
+      if (target === id || (target !== undefined && tagParent(target) !== parent)) return;
+      if (target !== undefined && position === 'inside') return;
+      const rows = await tagRows();
+      const siblings = rows.filter(row => row.parent === parent).map(row => row.id);
+      if (!siblings.includes(id) || (target !== undefined && !siblings.includes(target))) return;
+      const remaining = siblings.filter(key => key !== id);
+      remaining.splice(target === undefined ? remaining.length : remaining.indexOf(target) + (position === 'after' ? 1 : 0), 0, id);
+      const next = [...tagOrder.filter(key => tagParent(key) !== parent), ...remaining];
+      await context.globalState.update(`tagOrder:${root.toString()}`, next);
+      tagOrder = next;
+      await tags.update(await tagRows());
+    });
+    tagDropQueue = operation;
+    await operation;
+  }, true);
+  async function tagRows(): Promise<Note[]> {
+    const rows: Note[] = [];
+    async function visit(nodes: Iterable<TagNode>, parent: string): Promise<void> {
+      for (const node of sortedTags(nodes)) {
+        const item = await tagProvider.getTreeItem(node);
+        rows.push({ id: node.tag, parent, name: String(item.label), text: '', tags: [] });
+        await visit(node.children.values(), node.tag);
+      }
+    }
+    await visit(tagTree(notes).values(), '');
+    return rows;
+  }
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.tags', tags));
   async function scan() {
     const found: Note[] = [];
     async function walk(id: string, parent: string): Promise<void> {
@@ -90,7 +136,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
       return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi) || a.id.localeCompare(b.id, 'ja', { numeric: true });
     });
-    events.fire(); tagEvents.fire(); await tree.update(notes); decorate(); renderResults();
+    events.fire(); tagEvents.fire(); await tree.update(notes); await tags.update(await tagRows()); decorate(); renderResults();
   }
   let refreshQueue = Promise.resolve();
   function refresh() { refreshQueue = refreshQueue.catch(() => {}).then(scan); return refreshQueue; }

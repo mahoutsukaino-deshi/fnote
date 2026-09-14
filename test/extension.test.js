@@ -50,7 +50,8 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
   };
   const original = Module._load;
   Module._load = function(name, ...rest) { return name === 'vscode' ? api : name === 'node:os' ? { ...os, homedir: () => temp } : original.call(this, name, ...rest); };
-  const context = { extensionUri: uri(path.resolve(__dirname, '..')), subscriptions: [], globalState: { get: (_, fallback) => fallback, update: async () => {} }, globalStorageUri: uri(temp) };
+  const savedState = new Map();
+  const context = { extensionUri: uri(path.resolve(__dirname, '..')), subscriptions: [], globalState: { get: (key, fallback) => savedState.get(key) ?? fallback, update: async (key, value) => { savedState.set(key, value); } }, globalStorageUri: uri(temp) };
   try {
     const { activate } = require('../dist/extension');
     await activate(context);
@@ -77,21 +78,27 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     settings.set('tagStyles', { TODO: { mark: '🔴' }, '2026/09': { mark: '📅' } });
     assert.equal(provider.getTreeItem(child).label, '🔴 曲');
     settings.delete('tagStyles');
-    const tagProvider = views.get('fnote.tags').treeDataProvider;
-    const todo = tagProvider.getChildren().find(tag => tag.tag === 'TODO');
-    assert.equal(tagProvider.getTreeItem(todo).label, '🏷️ TODO');
-    settings.set('defaultTagMark', '◆');
-    assert.equal(tagProvider.getTreeItem(todo).label, '◆ TODO');
-    settings.set('defaultTagMark', '');
-    assert.equal(tagProvider.getTreeItem(todo).label, 'TODO');
-    settings.delete('defaultTagMark');
-    settings.set('tagStyles', { TODO: { mark: '🔴' }, '2026': { mark: '📅' } });
-    assert.equal(tagProvider.getTreeItem(todo).label, '🔴 TODO');
-    const year = tagProvider.getChildren().find(tag => tag.tag === '2026');
-    assert.equal(tagProvider.getTreeItem(tagProvider.getChildren(year)[0]).label, '📅 09');
-    settings.set('tagStyles', { TODO: { mark: '' } });
-    assert.equal(tagProvider.getTreeItem(todo).label, '🏷️ TODO');
-    settings.delete('tagStyles');
+    const tagSidebar = views.get('fnote.tags').webviewProvider;
+    let tagMessage, tagRows = [], tagHtml;
+    tagSidebar.resolveWebviewView({ webview: {
+      asWebviewUri: value => value,
+      set html(value) { tagHtml = value; },
+      postMessage: async message => { if (message.type === 'notes') tagRows = message.rows; },
+      onDidReceiveMessage: handler => { tagMessage = handler; return disposable(); }
+    } });
+    await tagMessage({ type: 'ready' });
+    assert.match(tagHtml, /data-tags="true"/);
+    assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
+    await tagMessage({ type: 'drop', id: 'TODO', target: '2026', position: 'before' });
+    assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['TODO', '2026']);
+    assert.deepEqual(savedState.get(`tagOrder:file://${path.join(temp, '.fnote')}`), ['TODO', '2026']);
+    await tagMessage({ type: 'drop', id: 'TODO', target: '2026', position: 'after' });
+    assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['2026', 'TODO']);
+    await tagMessage({ type: 'drop', id: 'TODO', target: '2026/09', position: 'before' });
+    assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['2026', 'TODO']);
+    await tagMessage({ type: 'drop', id: '2026', position: 'inside' });
+    await run('refresh');
+    assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['TODO', '2026']);
 
     assert.equal((await fs.readFile(path.join(temp, '.fnote/音楽/index.md'), 'utf8')), '# 音楽\n\n');
     await run('filter', '2026'); assert.equal(panelCount, 1); assert.match(html, /音楽/); assert.match(html, /曲/); assert.match(html, /1 件/);

@@ -2,6 +2,7 @@
   const api = acquireVsCodeApi();
   const tree = document.getElementById('tree');
   const menu = document.getElementById('menu');
+  const tagMode = document.body.dataset.tags === 'true';
   const saved = api.getState() || {};
   let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
   let dragging, drop, pending;
@@ -31,18 +32,20 @@
         toggle.setAttribute('aria-label', collapsed.has(note.id) ? '展開' : '折りたたむ');
         toggle.onclick = e => { e.stopPropagation(); if (hasChildren) { collapsed.has(note.id) ? collapsed.delete(note.id) : collapsed.add(note.id); persist(); render(); select(note.id, true); } };
         const label = document.createElement('span'); label.className = 'label'; label.textContent = note.label;
-        row.append(toggle, label); tree.append(row);
+        row.append(toggle, label);
+        if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
+        tree.append(row);
         row.onclick = () => { select(note.id, true); send('open', note.id); };
-        row.oncontextmenu = e => { e.preventDefault(); select(note.id, true); showMenu(e.clientX, e.clientY, note.id); };
+        row.oncontextmenu = e => { e.preventDefault(); if (tagMode) return; select(note.id, true); showMenu(e.clientX, e.clientY, note.id); };
         row.ondragstart = e => { dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
     }
     branch('', 0);
     if (!rows.length) {
-      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = '＋からノートを追加できます。'; tree.append(hint);
+      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = tagMode ? '本文にタグを入力すると表示されます。' : '＋からノートを追加できます。'; tree.append(hint);
     }
-    const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? '最上位の末尾へ移動' : ''; tree.append(rootDrop);
+    const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? '同じ階層の末尾へ移動' : '最上位の末尾へ移動') : ''; tree.append(rootDrop);
     select(selected); window.scrollTo(0, scroll);
   }
   function clearDrop() {
@@ -55,14 +58,15 @@
     const row = e.target.closest('.row');
     if (!row) {
       drop = { target: undefined, position: 'inside' };
-      const rootDrop = document.getElementById('root-drop'); rootDrop.classList.add('over'); rootDrop.textContent = '最上位の末尾へ移動';
+      const rootDrop = document.getElementById('root-drop'); rootDrop.classList.add('over'); rootDrop.textContent = (tagMode ? '同じ階層の末尾へ移動' : '最上位の末尾へ移動');
       return;
     }
     const target = row.dataset.id;
     if (within(target, dragging)) return;
+    if (tagMode && rows.find(item => item.id === target)?.parent !== rows.find(item => item.id === dragging)?.parent) return;
     const bounds = row.getBoundingClientRect();
     const ratio = (e.clientY - bounds.top) / bounds.height;
-    const position = ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
+    const position = tagMode ? (ratio < 0.5 ? 'before' : 'after') : ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
     drop = { target, position };
     let indicator = row;
     if (position === 'after') {
@@ -107,9 +111,9 @@
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send('open', current.id); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); if (!collapsed.has(current.id) && rows.some(row => row.parent === current.id)) { collapsed.add(current.id); persist(); render(); select(current.id, true); } else if (current.parent) { select(current.parent, true); send('select', current.parent); } }
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
-    if (e.key === 'F2') send('command', current.id, { command: 'rename' });
-    if (e.key === 'Delete') send('command', current.id, { command: 'delete' });
-    if (e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); showMenu(rect.left, rect.bottom, current.id); }
+    if (!tagMode && e.key === 'F2') send('command', current.id, { command: 'rename' });
+    if (!tagMode && e.key === 'Delete') send('command', current.id, { command: 'delete' });
+    if (!tagMode && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); showMenu(rect.left, rect.bottom, current.id); }
   });
   window.addEventListener('message', e => {
     const message = e.data;

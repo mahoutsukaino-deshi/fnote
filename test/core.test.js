@@ -217,3 +217,18 @@ test('合計時間をh・m形式で表示する', () => {
     assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️', ''), '');
   }
 });
+
+test('URL範囲はMarkdownの括弧・句読点・コードを除外する', () => {
+  const { parseUrls } = require('../dist/core');
+  const text = 'https://example.com/a?q=1&b=2。 [説明](http://example.com/path) https://example.com/a_(b). `https://hidden.test`\n```\nhttps://hidden.test\n```';
+  assert.deepEqual(parseUrls(text).map(url => text.slice(url.start, url.end)), [
+    'https://example.com/a?q=1&b=2', 'http://example.com/path', 'https://example.com/a_(b)'
+  ]);
+});
+
+test('file・mailto・独自スキームのURIを検出する', () => {
+  const { parseUrls } = require('../dist/core');
+  const uris = ['file://~/notes/a.md', 'file:///Users/test/a.md', 'file:relative.md', 'mailto:user@example.com', 'ftp://example.com/a', 'vscode://file/Users/test/a.ts:10', 'urn:isbn:1234', 'my-app+test://host/path'];
+  const text = uris.join(' ') + ' 10:30 C:/notes/a.md `file:///hidden`';
+  assert.deepEqual(parseUrls(text).map(uri => text.slice(uri.start, uri.end)), uris);
+});

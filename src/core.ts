@@ -50,6 +50,24 @@ export function parseTags(text: string): TagMatch[] {
   return result;
 }
 
+// Keep full-document offsets and the same code exclusions as tags.
+export function parseUrls(text: string): { start: number; end: number }[] {
+  const result: { start: number; end: number }[] = [];
+  for (const match of maskCode(text).matchAll(/(?<![\p{L}\p{N}_])[a-z][a-z0-9+.-]*:[^\s<>"'`、。！？「」『』]+/giu)) {
+    let url = match[0].replace(/[.,;:!?]+$/, '');
+    while (/[)\]}]$/.test(url)) {
+      const close = url.at(-1)!;
+      const open = ({ ')': '(', ']': '[', '}': '{' } as Record<string, string>)[close];
+      if (url.split(close).length <= url.split(open).length) break;
+      url = url.slice(0, -1);
+    }
+    // Windows drive paths are not URI schemes.
+    if (/^[a-z]:[\\/]/i.test(url)) continue;
+    if (/^[a-z][a-z0-9+.-]*:.+/i.test(url)) result.push({ start: match.index, end: match.index + url.length });
+  }
+  return result;
+}
+
 export function searchNotes(notes: readonly Note[], query: string): NoteSearchMatch[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [];

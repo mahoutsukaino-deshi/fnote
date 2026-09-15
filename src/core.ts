@@ -225,14 +225,14 @@ export function timeTagMinutes(tag: string): number | undefined {
 // Only times on a line with exactly one date belong to that day. Full-document
 // tag ranges preserve code exclusions when processing search-result snippets.
 export function minutesForDate(text: string, lines: readonly ContentMatch[], date: string, tags = parseTags(text)): number | undefined {
-  if (!isDateTag(date)) return undefined;
+  if (!/^\d{4}(?:\/\d{2}){0,2}$/.test(date)) return undefined;
   let total: number | undefined;
   for (const start of new Set(lines.map(line => line.start))) {
     const newline = text.indexOf('\n', start);
     const end = newline < 0 ? text.length : newline;
     const lineTags = tags.filter(tag => tag.start >= start && tag.start < end);
     const dates = lineTags.filter(tag => isDateTag(tag.tag));
-    if (dates.length !== 1 || dates[0].tag !== date) continue;
+    if (dates.length !== 1 || (dates[0].tag !== date && !dates[0].tag.startsWith(`${date}/`))) continue;
     for (const tag of lineTags) {
       const minutes = timeTagMinutes(tag.tag);
       if (minutes !== undefined) total = (total ?? 0) + minutes;

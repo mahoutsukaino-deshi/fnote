@@ -232,3 +232,16 @@ test('file・mailto・独自スキームのURIを検出する', () => {
   const text = uris.join(' ') + ' 10:30 C:/notes/a.md `file:///hidden`';
   assert.deepEqual(parseUrls(text).map(uri => text.slice(uri.start, uri.end)), uris);
 });
+
+test('年・月で配下の日付の時間を合計する', () => {
+  const text = '@2026/09/13 @24h\n@2026/09/14 @2h @30m\n@2026/10/01 @1h\n@2025/09/13 @8h\n@2026/09 @5h\n@2026/09/13 @2026/09/14 @10h';
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09'), '2026/09'), 1590);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026'), '2026'), 1650);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09/13'), '2026/09/13'), 1440);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/08'), '2026/08'), undefined);
+});
+test('24時間以上も時間と分で表示する', () => {
+  for (const [minutes, label] of [[1439, '23h59m'], [1440, '24h'], [1441, '24h1m'], [1590, '26h30m'], [2880, '48h']]) {
+    assert.equal(formatWorkMinutes(minutes), label);
+  }
+});

@@ -70,7 +70,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@TODO @2026/09/01');
     await run('refresh');
     let child = provider.getChildren(parent)[0];
-    assert.equal(provider.getTreeItem(child).label, '曲');
+    assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
     settings.set('tagStyles', { TODO: { mark: '🔴' } });
     assert.equal(provider.getTreeItem(child).label, '🔴 曲');
     settings.set('tagStyles', { '2026/09': { mark: '📅' }, TODO: { mark: '🔴' } });
@@ -89,6 +89,15 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await tagMessage({ type: 'ready' });
     assert.match(tagHtml, /data-tags="true"/);
     assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
+    for (const mark of [undefined, '', '   ']) {
+      settings.set('tagStyles', [{ tag: 'TODO', mark }]);
+      await run('refresh');
+      assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
+      assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
+      await run('filter', 'TODO');
+      assert.match(html, /🏷️ 曲<\/button>/);
+    }
+    settings.delete('tagStyles');
     await tagMessage({ type: 'drop', id: 'TODO', target: '2026', position: 'before' });
     assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['TODO', '2026']);
     assert.deepEqual(savedState.get(`tagOrder:file://${path.join(temp, '.fnote')}`), ['TODO', '2026']);

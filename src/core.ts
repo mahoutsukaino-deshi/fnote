@@ -117,7 +117,7 @@ export function styleFor(tag: string, styles: TagStyles): TagStyle {
   return key === undefined ? {} : definitions.get(key)!;
 }
 
-export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string): string {
+export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️'): string {
   const regularTags = tags.filter(tag => !isDateTag(tag.tag) && !isTimeTag(tag.tag));
   if (regularTags.length === 0) return untaggedMark;
   const entries = styleEntries(styles);
@@ -127,10 +127,10 @@ export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedM
   for (const [key, style] of entries) {
     if (visited.has(key)) continue;
     visited.add(key);
-    const mark = style.mark;
+    const mark = style.mark?.trim();
     if (mark && applicable.has(key)) return mark;
   }
-  return '';
+  return defaultTagMark;
 }
 export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);

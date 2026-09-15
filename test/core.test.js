@@ -90,7 +90,7 @@ test('ノートの印は本文順ではなく設定順で1つだけ選ぶ', () =
   assert.equal(noteMark(tags, { ロック: { mark: '🟡' }, TODO: { mark: '🔴' } }, '🗒️'), '🟡');
   assert.equal(noteMark(tags, { TODO: { color: '#fff' }, ロック: { mark: '🟡' } }, '🗒️'), '🟡');
   assert.equal(noteMark([], {}, '🗒️'), '🗒️');
-  assert.equal(noteMark(tags, {}, '🗒️'), '');
+  assert.equal(noteMark(tags, {}, '🗒️'), '🏷️');
 });
 test('階層タグは有効な最寄りの設定の順序で印を選ぶ', () => {
   const styles = { date: { mark: '📅' }, TODO: { mark: '🔴' }, 'date/day': { mark: '◆' } };
@@ -207,5 +207,13 @@ test('日付と時刻は同じ行だけを集計し、コード・曖昧な日�
 test('合計時間をh・m形式で表示する', () => {
   for (const [minutes, expected] of [[0, '0m'], [30, '30m'], [60, '1h'], [90, '1h30m'], [160, '2h40m']]) {
     assert.equal(formatWorkMinutes(minutes), expected);
+  }
+});
+
+ test('印が未設定・空白の通常タグは既定の印にフォールバックする', () => {
+  for (const mark of [undefined, '', '   ']) {
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️'), '🏷️');
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️', '◆'), '◆');
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️', ''), '');
   }
 });

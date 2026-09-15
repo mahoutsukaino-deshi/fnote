@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { return await fn(...args); }
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
   };
-  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'));
+  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'), config().get<string>('defaultTagMark', '🏷️'));
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
     onDidChangeTreeData: events.event,
@@ -68,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onDidChangeTreeData: tagEvents.event,
     getChildren: n => sortedTags((n?.children || tagTree(notes)).values()),
     getTreeItem: n => {
-      const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark || config().get<string>('defaultTagMark', '🏷️');
+      const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark?.trim() || config().get<string>('defaultTagMark', '🏷️');
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = `@${n.tag}`;
       item.description = String(notes.filter(note => matchesTag(note, n.tag)).length);

@@ -29,6 +29,7 @@
         {
           "id": "fnote.notes",
           "name": "fnote - list",
+          "contextualTitle": "fnote - list",
           "icon": "$(notebook)",
           "type": "webview"
         },
@@ -36,6 +37,7 @@
           "id": "fnote.tags",
           "type": "webview",
           "name": "fnote - tags",
+          "contextualTitle": "fnote - tags",
           "icon": "$(tag)"
         }
       ]

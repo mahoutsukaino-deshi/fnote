@@ -16,6 +16,9 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     private readonly tagMode = false
   ) {}
   get selection(): Note[] { return this.current.filter(note => note.id === this.selectedId); }
+  async collapseAll(): Promise<void> {
+    await this.view?.webview.postMessage({ type: 'collapseAll' });
+  }
   async reveal(note: Note): Promise<void> {
     this.selectedId = note.id;
     await this.view?.webview.postMessage({ type: 'select', id: note.id });

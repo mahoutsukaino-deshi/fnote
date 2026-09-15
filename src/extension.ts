@@ -325,6 +325,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.title = `fnote: ${title}`; renderResults(); panel.reveal();
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
+  command('collapseNotes', () => tree.collapseAll());
+  command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
   command('rename', async (n?: Note) => {

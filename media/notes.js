@@ -118,6 +118,11 @@
   window.addEventListener('message', e => {
     const message = e.data;
     if (message.type === 'notes') { if (dragging) { pending = message.rows; return; } rows = message.rows; selected = message.selected ?? selected; render(); }
+    if (message.type === 'collapseAll') {
+      collapsed = new Set((pending || rows).map(row => row.parent).filter(Boolean));
+      while (selected && rows.find(row => row.id === selected)?.parent) selected = rows.find(row => row.id === selected).parent;
+      persist(); render();
+    }
     if (message.type === 'select') {
       let id = message.id;
       while (id.includes('/')) { id = id.slice(0, id.lastIndexOf('/')); collapsed.delete(id); }

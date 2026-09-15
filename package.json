@@ -83,6 +83,16 @@
         "command": "fnote.search",
         "title": "fnote: ノートを検索",
         "icon": "$(search)"
+      },
+      {
+        "command": "fnote.collapseNotes",
+        "title": "fnote: ノート一覧をすべて折りたたむ",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "fnote.collapseTags",
+        "title": "fnote: タグ一覧をすべて折りたたむ",
+        "icon": "$(collapse-all)"
       }
     ],
     "menus": {
@@ -94,13 +104,23 @@
         },
         {
           "command": "fnote.refresh",
-          "when": "view == fnote.notes",
+          "when": "view == fnote.notes || view == fnote.tags",
           "group": "navigation@2"
         },
         {
           "command": "fnote.search",
           "when": "view == fnote.notes",
           "group": "navigation@0"
+        },
+        {
+          "command": "fnote.collapseNotes",
+          "when": "view == fnote.notes",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fnote.collapseTags",
+          "when": "view == fnote.tags",
+          "group": "navigation@3"
         }
       ]
     },

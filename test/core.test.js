@@ -90,7 +90,7 @@ test('ノートの印は本文順ではなく設定順で1つだけ選ぶ', () =
   assert.equal(noteMark(tags, { ロック: { mark: '🟡' }, TODO: { mark: '🔴' } }, '🗒️'), '🟡');
   assert.equal(noteMark(tags, { TODO: { color: '#fff' }, ロック: { mark: '🟡' } }, '🗒️'), '🟡');
   assert.equal(noteMark([], {}, '🗒️'), '🗒️');
-  assert.equal(noteMark(tags, {}, '🗒️'), '');
+  assert.equal(noteMark(tags, {}, '🗒️'), '🏷️');
 });
 test('階層タグは有効な最寄りの設定の順序で印を選ぶ', () => {
   const styles = { date: { mark: '📅' }, TODO: { mark: '🔴' }, 'date/day': { mark: '◆' } };
@@ -207,5 +207,41 @@ test('日付と時刻は同じ行だけを集計し、コード・曖昧な日�
 test('合計時間をh・m形式で表示する', () => {
   for (const [minutes, expected] of [[0, '0m'], [30, '30m'], [60, '1h'], [90, '1h30m'], [160, '2h40m']]) {
     assert.equal(formatWorkMinutes(minutes), expected);
+  }
+});
+
+ test('印が未設定・空白の通常タグは既定の印にフォールバックする', () => {
+  for (const mark of [undefined, '', '   ']) {
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️'), '🏷️');
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️', '◆'), '◆');
+    assert.equal(noteMark(parseTags('@TODO'), { TODO: { mark } }, '🗒️', ''), '');
+  }
+});
+
+test('URL範囲はMarkdownの括弧・句読点・コードを除外する', () => {
+  const { parseUrls } = require('../dist/core');
+  const text = 'https://example.com/a?q=1&b=2。 [説明](http://example.com/path) https://example.com/a_(b). `https://hidden.test`\n```\nhttps://hidden.test\n```';
+  assert.deepEqual(parseUrls(text).map(url => text.slice(url.start, url.end)), [
+    'https://example.com/a?q=1&b=2', 'http://example.com/path', 'https://example.com/a_(b)'
+  ]);
+});
+
+test('file・mailto・独自スキームのURIを検出する', () => {
+  const { parseUrls } = require('../dist/core');
+  const uris = ['file://~/notes/a.md', 'file:///Users/test/a.md', 'file:relative.md', 'mailto:user@example.com', 'ftp://example.com/a', 'vscode://file/Users/test/a.ts:10', 'urn:isbn:1234', 'my-app+test://host/path'];
+  const text = uris.join(' ') + ' 10:30 C:/notes/a.md `file:///hidden`';
+  assert.deepEqual(parseUrls(text).map(uri => text.slice(uri.start, uri.end)), uris);
+});
+
+test('年・月で配下の日付の時間を合計する', () => {
+  const text = '@2026/09/13 @24h\n@2026/09/14 @2h @30m\n@2026/10/01 @1h\n@2025/09/13 @8h\n@2026/09 @5h\n@2026/09/13 @2026/09/14 @10h';
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09'), '2026/09'), 1590);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026'), '2026'), 1650);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09/13'), '2026/09/13'), 1440);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/08'), '2026/08'), undefined);
+});
+test('24時間以上も時間と分で表示する', () => {
+  for (const [minutes, label] of [[1439, '23h59m'], [1440, '24h'], [1441, '24h1m'], [1590, '26h30m'], [2880, '48h']]) {
+    assert.equal(formatWorkMinutes(minutes), label);
   }
 });

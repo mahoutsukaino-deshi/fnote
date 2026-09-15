@@ -4,7 +4,7 @@ import type { DropPosition } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, noteMark, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
+import { parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, noteMark, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagStyles, HeadingMatch, ContentMatch } from './core';
 
 function isMissing(error: unknown): boolean {
@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { return await fn(...args); }
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
   };
-  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'));
+  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'), config().get<string>('defaultTagMark', '🏷️'));
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
     onDidChangeTreeData: events.event,
@@ -68,7 +68,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onDidChangeTreeData: tagEvents.event,
     getChildren: n => sortedTags((n?.children || tagTree(notes)).values()),
     getTreeItem: n => {
-      const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark || config().get<string>('defaultTagMark', '🏷️');
+      const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark?.trim() || config().get<string>('defaultTagMark', '🏷️');
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = `@${n.tag}`;
       item.description = String(notes.filter(note => matchesTag(note, n.tag)).length);
@@ -155,6 +155,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const key = JSON.stringify([color, backgroundColor]);
         if (!groups.has(key)) groups.set(key, { color, backgroundColor, ranges: [] });
         groups.get(key)!.ranges.push(new vscode.Range(editor.document.positionAt(tag.start), editor.document.positionAt(tag.end)));
+      }
+      const urlRanges = parseUrls(editor.document.getText()).map(url =>
+        new vscode.Range(editor.document.positionAt(url.start), editor.document.positionAt(url.end)));
+      if (urlRanges.length) {
+        const decoration = vscode.window.createTextEditorDecorationType({ color: '#3794FF' });
+        decorations.push(decoration); editor.setDecorations(decoration, urlRanges);
       }
       for (const { color, backgroundColor, ranges } of groups.values()) {
         const decoration = vscode.window.createTextEditorDecorationType({ color, backgroundColor: backgroundColor || undefined });
@@ -245,9 +251,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const relative = originalLine.indexOf(text);
       if (relative < 0) return h(text);
       const offset = start + relative;
-      const ranges = note.tags.filter(tag => tag.start >= offset && tag.end <= offset + text.length)
+      const urls = parseUrls(note.text);
+      const tokens = [...note.tags.filter(tag => !urls.some(url => tag.start < url.end && tag.end > url.start)),
+        ...urls.map(url => ({ ...url, tag: ':url' }))].sort((a, b) => a.start - b.start);
+      const ranges = tokens.filter(tag => tag.start >= offset && tag.end <= offset + text.length)
         .map(tag => ({ ...tag, start: tag.start - offset, end: tag.end - offset }));
-      return renderTagText(text, ranges, classFor);
+      return renderTagText(text, ranges, tag => tag === ':url' ? 'url' : classFor(tag));
     };
     const contentBranch = (id: string, lines: ContentMatch[]): string => lines.length ? `<ul>${lines.map(line => `<li><button data-id="${h(id)}" data-offset="${line.start}" class="content">${fragment(id, line.start, line.text)}</button></li>`).join('')}</ul>` : '';
     const timeLabel = (minutes: number | undefined): string =>
@@ -293,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const titleHtml = activeQuery ? h(title) : renderTagText(title, parseTags(title), classFor);
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const nonce = crypto.randomBytes(16).toString('hex');
-    panel.webview.html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}.work-time{margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}.ancestor{opacity:.6}.match{color:var(--vscode-textLink-foreground)}${tagCss}</style></head><body><h1>${titleHtml}</h1><p>${count} 件のノート · 薄い文字は親ノート・上位見出しです</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
+    panel.webview.html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}.url{color:#3794FF}${tagCss}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} 件のノート</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
   }
   function filter(tag: string) {
     activeTag = tag;
@@ -325,6 +334,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.title = `fnote: ${title}`; renderResults(); panel.reveal();
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
+  command('collapseNotes', () => tree.collapseAll());
+  command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
   command('rename', async (n?: Note) => {

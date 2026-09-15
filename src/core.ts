@@ -50,6 +50,24 @@ export function parseTags(text: string): TagMatch[] {
   return result;
 }
 
+// Keep full-document offsets and the same code exclusions as tags.
+export function parseUrls(text: string): { start: number; end: number }[] {
+  const result: { start: number; end: number }[] = [];
+  for (const match of maskCode(text).matchAll(/(?<![\p{L}\p{N}_])[a-z][a-z0-9+.-]*:[^\s<>"'`、。！？「」『』]+/giu)) {
+    let url = match[0].replace(/[.,;:!?]+$/, '');
+    while (/[)\]}]$/.test(url)) {
+      const close = url.at(-1)!;
+      const open = ({ ')': '(', ']': '[', '}': '{' } as Record<string, string>)[close];
+      if (url.split(close).length <= url.split(open).length) break;
+      url = url.slice(0, -1);
+    }
+    // Windows drive paths are not URI schemes.
+    if (/^[a-z]:[\\/]/i.test(url)) continue;
+    if (/^[a-z][a-z0-9+.-]*:.+/i.test(url)) result.push({ start: match.index, end: match.index + url.length });
+  }
+  return result;
+}
+
 export function searchNotes(notes: readonly Note[], query: string): NoteSearchMatch[] {
   const needle = query.trim().toLocaleLowerCase();
   if (!needle) return [];
@@ -117,7 +135,7 @@ export function styleFor(tag: string, styles: TagStyles): TagStyle {
   return key === undefined ? {} : definitions.get(key)!;
 }
 
-export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string): string {
+export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️'): string {
   const regularTags = tags.filter(tag => !isDateTag(tag.tag) && !isTimeTag(tag.tag));
   if (regularTags.length === 0) return untaggedMark;
   const entries = styleEntries(styles);
@@ -127,10 +145,10 @@ export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedM
   for (const [key, style] of entries) {
     if (visited.has(key)) continue;
     visited.add(key);
-    const mark = style.mark;
+    const mark = style.mark?.trim();
     if (mark && applicable.has(key)) return mark;
   }
-  return '';
+  return defaultTagMark;
 }
 export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);
@@ -207,14 +225,14 @@ export function timeTagMinutes(tag: string): number | undefined {
 // Only times on a line with exactly one date belong to that day. Full-document
 // tag ranges preserve code exclusions when processing search-result snippets.
 export function minutesForDate(text: string, lines: readonly ContentMatch[], date: string, tags = parseTags(text)): number | undefined {
-  if (!isDateTag(date)) return undefined;
+  if (!/^\d{4}(?:\/\d{2}){0,2}$/.test(date)) return undefined;
   let total: number | undefined;
   for (const start of new Set(lines.map(line => line.start))) {
     const newline = text.indexOf('\n', start);
     const end = newline < 0 ? text.length : newline;
     const lineTags = tags.filter(tag => tag.start >= start && tag.start < end);
     const dates = lineTags.filter(tag => isDateTag(tag.tag));
-    if (dates.length !== 1 || dates[0].tag !== date) continue;
+    if (dates.length !== 1 || (dates[0].tag !== date && !dates[0].tag.startsWith(`${date}/`))) continue;
     for (const tag of lineTags) {
       const minutes = timeTagMinutes(tag.tag);
       if (minutes !== undefined) total = (total ?? 0) + minutes;

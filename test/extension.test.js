@@ -70,7 +70,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@TODO @2026/09/01');
     await run('refresh');
     let child = provider.getChildren(parent)[0];
-    assert.equal(provider.getTreeItem(child).label, '曲');
+    assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
     settings.set('tagStyles', { TODO: { mark: '🔴' } });
     assert.equal(provider.getTreeItem(child).label, '🔴 曲');
     settings.set('tagStyles', { '2026/09': { mark: '📅' }, TODO: { mark: '🔴' } });
@@ -89,6 +89,15 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await tagMessage({ type: 'ready' });
     assert.match(tagHtml, /data-tags="true"/);
     assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
+    for (const mark of [undefined, '', '   ']) {
+      settings.set('tagStyles', [{ tag: 'TODO', mark }]);
+      await run('refresh');
+      assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
+      assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
+      await run('filter', 'TODO');
+      assert.match(html, /🏷️ 曲<\/button>/);
+    }
+    settings.delete('tagStyles');
     await tagMessage({ type: 'drop', id: 'TODO', target: '2026', position: 'before' });
     assert.deepEqual(tagRows.filter(row => !row.parent).map(row => row.id), ['TODO', '2026']);
     assert.deepEqual(savedState.get(`tagOrder:file://${path.join(temp, '.fnote')}`), ['TODO', '2026']);
@@ -220,13 +229,24 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     for (const title of ['作業', '曲', '音楽']) {
       assert.ok(html.includes(`${title}</button><span class="work-time">(2h40m)</span>`));
     }
-    assert.equal((html.match(/class="work-time"/g) || []).length, 4);
+    assert.equal((html.match(/class="work-time"/g) || []).length, 5);
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '@2026/09/13 @20m');
     await fs.appendFile(path.join(temp, '.fnote/音楽/曲/index.md'), '\n## 別作業\n@2026/09/13 @20m');
     await run('refresh');
     assert.match(html, /作業<\/button><span class="work-time">\(3h\)<\/span>/);
     assert.match(html, /曲<\/button><span class="work-time">\(3h\)<\/span>/);
     assert.match(html, /音楽<\/button><span class="work-time">\(3h20m\)<\/span>/);
+    assert.match(html, /<h1>.*@2026\/09\/13<\/span><span class="work-time">\(3h20m\)<\/span><\/h1>/);
+    inputs.push('別ノート'); await run('add');
+    await fs.writeFile(path.join(temp, '.fnote/別ノート/index.md'), '@2026/09/13 @40m');
+    await run('refresh');
+    assert.match(html, /<h1>.*<span class="work-time">\(4h\)<\/span><\/h1>/);
+    await run('filter', '2026/09/14');
+    assert.match(html, /<h1>.*<span class="work-time">\(8h\)<\/span><\/h1>/);
+    await run('filter', '2026/09/15');
+    assert.doesNotMatch(html, /class="work-time"/);
+    await run('delete', provider.getChildren().find(note => note.id === '別ノート'));
+
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '');
     await run('filter', 'TODO'); assert.doesNotMatch(html, /class="work-time"/);
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@2026/09/13 @10m @TODO');

@@ -5,9 +5,10 @@
   const tagMode = document.body.dataset.tags === 'true';
   const saved = api.getState() || {};
   let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
+  const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pending;
   const within = (id, parent) => id === parent || id.startsWith(parent + '/');
-  const persist = () => api.setState({ selected, collapsed: [...collapsed] });
+  const persist = () => api.setState({ selected, collapsed: [...collapsed], dateBranches: [...dateBranches] });
   const send = (type, id, rest = {}) => api.postMessage({ type, id, ...rest });
   function select(id, focus = false) {
     selected = id; persist();
@@ -117,7 +118,19 @@
   });
   window.addEventListener('message', e => {
     const message = e.data;
+    if (message.type === 'notes' && tagMode) {
+      for (const row of message.rows) {
+        if (!/^\d{4}(?:\/\d{2})?$/.test(row.id) || !message.rows.some(child => child.parent === row.id)) continue;
+        if (!dateBranches.has(row.id)) { collapsed.add(row.id); dateBranches.add(row.id); }
+      }
+      persist();
+    }
     if (message.type === 'notes') { if (dragging) { pending = message.rows; return; } rows = message.rows; selected = message.selected ?? selected; render(); }
+    if (message.type === 'collapseAll') {
+      collapsed = new Set((pending || rows).map(row => row.parent).filter(Boolean));
+      while (selected && rows.find(row => row.id === selected)?.parent) selected = rows.find(row => row.id === selected).parent;
+      persist(); render();
+    }
     if (message.type === 'select') {
       let id = message.id;
       while (id.includes('/')) { id = id.slice(0, id.lastIndexOf('/')); collapsed.delete(id); }

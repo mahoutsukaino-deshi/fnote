@@ -276,3 +276,49 @@ test('タグ階層の循環・複数親・同名の末尾を持つタグを安�
   assert.equal(tree.has('other'), false);
   assert.deepEqual([...tree.get('group').children.values()].map(node => node.tag), ['x/item', 'y/item']);
 });
+
+
+test('タイトルの印から除外したタグは優先順位と既定タグ印の判定に参加しない', () => {
+  for (const styles of [
+    [{ tag: '参考', mark: '📚', excludeFromNoteMark: true }, { tag: 'TODO', mark: '🔴' }],
+    { 参考: { mark: '📚', excludeFromNoteMark: true }, TODO: { mark: '🔴' } }
+  ]) {
+    assert.equal(noteMark(parseTags('@参考 @TODO'), styles, '🗒️'), '🔴');
+    assert.equal(noteMark(parseTags('@参考'), styles, '🗒️'), '🗒️');
+    assert.equal(noteMark(parseTags('@参考 @2026/09/17 @10m'), styles, ''), '');
+    assert.equal(noteMark(parseTags('@参考 @未設定'), styles, '🗒️', '🏷️'), '🏷️');
+    assert.equal(styleFor('参考', styles).mark, '📚');
+  }
+});
+test('印の除外は最寄りの定義と重複定義の先頭に従う', () => {
+  const styles = [
+    { tag: '参考', mark: '📚', excludeFromNoteMark: true },
+    { tag: '参考', mark: '誤った候補', excludeFromNoteMark: false },
+    { tag: '参考/重要', mark: '⭐', excludeFromNoteMark: false },
+    { tag: '参考/通常', mark: '◆' },
+    { tag: 'TODO', mark: '🔴' }
+  ];
+  assert.equal(noteMark(parseTags('@参考/資料 @TODO'), styles, ''), '🔴');
+  assert.equal(noteMark(parseTags('@参考 @参考/資料'), styles, '🗒️'), '🗒️');
+  assert.equal(noteMark(parseTags('@参考/重要 @TODO'), styles, ''), '⭐');
+  assert.equal(noteMark(parseTags('@参考/通常 @TODO'), styles, ''), '🔴');
+});
+
+test('除外属性は設定したタグ階層を継承し、子の色・印だけの定義では解除しない', () => {
+  const hierarchy = { 分類: ['参考'], 参考: ['資料', '例外', '未定義'] };
+  const styles = [
+    { tag: '分類', excludeFromNoteMark: true },
+    { tag: '参考', color: '#fff' },
+    { tag: '資料', mark: '📚' },
+    { tag: '例外', mark: '⭐', excludeFromNoteMark: false },
+    { tag: 'TODO', mark: '🔴' }
+  ];
+  for (const definitions of [styles, Object.fromEntries(styles.map(({ tag, ...style }) => [tag, style]))]) {
+    const mark = text => noteMark(parseTags(text), definitions, '🗒️', '🏷️', hierarchy);
+    assert.equal(mark('@資料 @TODO'), '🔴');
+    assert.equal(mark('@資料/詳細 @参考 @未定義'), '🗒️');
+    assert.equal(mark('@例外 @TODO'), '⭐');
+    assert.equal(mark('@未設定'), '🏷️');
+    assert.equal(styleFor('資料', definitions).mark, '📚');
+  }
+});

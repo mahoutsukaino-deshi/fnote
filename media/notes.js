@@ -32,7 +32,7 @@
         toggle.textContent = hasChildren ? (collapsed.has(note.id) ? '▸' : '▾') : '';
         toggle.setAttribute('aria-label', collapsed.has(note.id) ? '展開' : '折りたたむ');
         toggle.onclick = e => { e.stopPropagation(); if (hasChildren) { collapsed.has(note.id) ? collapsed.delete(note.id) : collapsed.add(note.id); persist(); render(); select(note.id, true); } };
-        const label = document.createElement('span'); label.className = 'label'; label.textContent = note.label;
+        const label = document.createElement('span'); label.className = 'label'; label.textContent = collapsed.has(note.id) ? (note.collapsedLabel ?? note.label) : note.label;
         row.append(toggle, label);
         if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);

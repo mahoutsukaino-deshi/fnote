@@ -55,6 +55,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const operation = dropQueue.catch(() => {}).then(() => dropNote(id, target, position));
     dropQueue = operation;
     return operation;
+  }, false, note => {
+    const mark = marks({ ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) });
+    return `${mark ? `${mark} ` : ''}${note.name}`;
   });
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
   const tagParent = (tag: string) => tag.slice(0, Math.max(0, tag.lastIndexOf('/')));

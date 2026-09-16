@@ -245,3 +245,13 @@ test('24時間以上も時間と分で表示する', () => {
     assert.equal(formatWorkMinutes(minutes), label);
   }
 });
+
+test('深いリストのタグを認識し、リスト内のコードは除外する（#14）', () => {
+  const text = '- @A\n  - @B\n    - @C\n      1. @D\n         続き @E\n\n             @code\n         ```\n         - @fenced\n         ```\n      - @F\n\n通常\n    @outsideCode';
+  assert.deepEqual(tags(text), ['A', 'B', 'C', 'D', 'E', 'F']);
+  for (const tag of parseTags(text)) assert.equal(text.slice(tag.start, tag.end), '@' + tag.tag);
+  assert.deepEqual(tags('- @A\n\t- @B\n\t\t- @C'), ['A', 'B', 'C']);
+  assert.deepEqual(tags('    - @code\n- 親\n      - @code'), []);
+  const dated = '- 親\n  - 子\n    - @2026/09/16 @30m';
+  assert.equal(minutesForDate(dated, matchingLines(dated, '2026/09/16'), '2026/09/16'), 30);
+});

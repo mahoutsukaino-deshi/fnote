@@ -15,14 +15,28 @@ function maskCode(text: string): string {
   const mask = (start: number, end: number) => { for (let i = start; i < end; i++) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' '; };
   let offset = 0;
   let fence: string | undefined;
+  const listIndents: number[] = [];
   for (const line of text.split(/(?<=\n)/)) {
-    const match = line.match(/^ {0,3}(`{3,}|~{3,}|'{3,})/);
+    const whitespace = line.match(/^[ \t]*/)![0];
+    let indent = 0;
+    for (const char of whitespace) indent += char === '\t' ? 4 - indent % 4 : 1;
+    const content = line.slice(whitespace.length);
+    let marker = /^(?:[-+*]|\d{1,9}[.)])([ \t]+)(?=\S)/.exec(content);
+    if (!fence && content.trim()) {
+      while (listIndents.length && indent < listIndents[listIndents.length - 1]) listIndents.pop();
+      if (indent - (listIndents.at(-1) ?? 0) >= 4) marker = null;
+      if (marker) listIndents.push(indent + marker[0].length);
+    }
+    const base = listIndents.at(-1) ?? 0;
+    const relativeIndent = marker && !fence ? 0 : Math.max(0, indent - base);
+    const logicalLine = marker && !fence ? content.slice(marker[0].length) : content;
+    const match = relativeIndent < 4 ? logicalLine.match(/^(`{3,}|~{3,}|'{3,})/) : null;
     if (fence) {
       mask(offset, offset + line.length);
-      if (match && match[1][0] === fence[0] && match[1].length >= fence.length && line.slice(match[0].length).trim() === '') fence = undefined;
+      if (match && match[1][0] === fence[0] && match[1].length >= fence.length && logicalLine.slice(match[0].length).trim() === '') fence = undefined;
     } else if (match) {
       fence = match[1]; mask(offset, offset + line.length);
-    } else if (/^( {4}|\t)/.test(line)) mask(offset, offset + line.length);
+    } else if (relativeIndent >= 4) mask(offset, offset + line.length);
     offset += line.length;
   }
   const masked = chars.join('');

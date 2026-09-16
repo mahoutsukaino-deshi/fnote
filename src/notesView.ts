@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import * as crypto from 'node:crypto';
-import type { Note } from './core';
+import { parseHeadings, type Note } from './core';
+
+interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number }
 
 export type DropPosition = 'before' | 'after' | 'inside';
 
@@ -8,6 +10,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private view?: vscode.WebviewView;
   private current: Note[] = [];
   private selectedId?: string;
+  private outline: OutlineRow[] = [];
   private subscriptions: vscode.Disposable[] = [];
   constructor(
     public readonly data: vscode.TreeDataProvider<Note>,
@@ -26,12 +29,24 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async update(notes: Note[]): Promise<void> {
     this.current = notes;
+    this.outline = this.tagMode ? [] : notes.flatMap(note => {
+      const rows: OutlineRow[] = [];
+      const stack: { level: number; id: string }[] = [];
+      for (const heading of parseHeadings(note.text)) {
+        if (heading.level === 1) { stack.length = 0; continue; }
+        while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop();
+        const id = `\0heading:${note.id}:${heading.start}`;
+        rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start });
+        stack.push({ level: heading.level, id });
+      }
+      return rows;
+    });
     if (!this.view) return;
     const rows = await Promise.all(notes.map(async note => {
       const item = await this.data.getTreeItem(note);
       return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, collapsedLabel: this.collapsedLabel?.(note) };
     }));
-    await this.view.webview.postMessage({ type: 'notes', rows, selected: this.selectedId });
+    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows], selected: this.selectedId });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -46,6 +61,14 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
       if (!message || typeof message !== 'object' || !('type' in message)) return;
       try {
         if (message.type === 'ready') { await this.update(this.current); return; }
+        if ('id' in message && typeof message.id === 'string') {
+          const heading = this.outline.find(row => row.id === message.id);
+          if (heading) {
+            this.selectedId = heading.noteId;
+            if (message.type === 'open') await vscode.commands.executeCommand('fnote.open', heading.noteId, heading.offset);
+            return;
+          }
+        }
         if (!('id' in message) || typeof message.id !== 'string' || !this.current.some(note => note.id === message.id)) return;
         this.selectedId = message.id;
         if (message.type === 'open') await vscode.commands.executeCommand(this.tagMode ? 'fnote.filter' : 'fnote.open', message.id);
@@ -54,6 +77,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
         }
         if (message.type === 'drop' && 'position' in message && ['before', 'after', 'inside'].includes(String(message.position))) {
           const target = 'target' in message && typeof message.target === 'string' ? message.target : undefined;
+          if (target !== undefined && !this.current.some(note => note.id === target)) return;
           await this.onDrop(message.id, target, message.position as DropPosition);
         }
       } catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }

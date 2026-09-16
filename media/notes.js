@@ -8,7 +8,6 @@
   const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pending;
   const within = (id, parent) => {
-    if (!tagMode) return id === parent || id.startsWith(parent + '/');
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
   };
@@ -29,8 +28,8 @@
       for (const note of rows.filter(row => row.parent === parent)) {
         const hasChildren = rows.some(row => row.parent === note.id);
         const row = document.createElement('div'); row.className = 'row'; row.dataset.id = note.id;
-        row.draggable = true; row.style.paddingLeft = `${depth * 16 + 4}px`;
-        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.id;
+        row.draggable = !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
+        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.id;
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
         const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1;
         toggle.textContent = hasChildren ? (collapsed.has(note.id) ? '▸' : '▾') : '';
@@ -41,8 +40,8 @@
         if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);
         row.onclick = () => { select(note.id, true); send('open', note.id); };
-        row.oncontextmenu = e => { e.preventDefault(); if (tagMode) return; select(note.id, true); showMenu(e.clientX, e.clientY, note.id); };
-        row.ondragstart = e => { dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
+        row.oncontextmenu = e => { e.preventDefault(); if (tagMode || note.noteId) return; select(note.id, true); showMenu(e.clientX, e.clientY, note.id); };
+        row.ondragstart = e => { if (note.noteId) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
     }
@@ -67,6 +66,7 @@
       return;
     }
     const target = row.dataset.id;
+    if (rows.find(item => item.id === target)?.noteId) return;
     if (within(target, dragging)) return;
     if (tagMode && rows.find(item => item.id === target)?.parent !== rows.find(item => item.id === dragging)?.parent) return;
     const bounds = row.getBoundingClientRect();
@@ -116,9 +116,9 @@
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send('open', current.id); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); if (!collapsed.has(current.id) && rows.some(row => row.parent === current.id)) { collapsed.add(current.id); persist(); render(); select(current.id, true); } else if (current.parent) { select(current.parent, true); send('select', current.parent); } }
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
-    if (!tagMode && e.key === 'F2') send('command', current.id, { command: 'rename' });
-    if (!tagMode && e.key === 'Delete') send('command', current.id, { command: 'delete' });
-    if (!tagMode && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); showMenu(rect.left, rect.bottom, current.id); }
+    if (!tagMode && !current.noteId && e.key === 'F2') send('command', current.id, { command: 'rename' });
+    if (!tagMode && !current.noteId && e.key === 'Delete') send('command', current.id, { command: 'delete' });
+    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); showMenu(rect.left, rect.bottom, current.id); }
   });
   window.addEventListener('message', e => {
     const message = e.data;

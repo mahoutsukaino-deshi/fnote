@@ -24,7 +24,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
     RelativePattern: class {}, DataTransferItem: class { constructor(value) { this.value = value; } },
     WorkspaceEdit: class { ops = []; renameFile(a, b) { this.ops.push(() => fs.rename(a.fsPath, b.fsPath)); } deleteFile(a) { this.ops.push(() => fs.rm(a.fsPath, { recursive: true })); } },
-    commands: { registerCommand(name, fn) { commands.set(name, fn); return disposable(); } },
+    commands: { executeCommand: (name, ...args) => commands.get(name)(...args), registerCommand(name, fn) { commands.set(name, fn); return disposable(); } },
     workspace: {
       workspaceFolders: [{ uri: uri(temp) }], textDocuments: documents,
       getConfiguration: () => ({ inspect: key => ({ globalValue: settings.get(key) }), get: (key, fallback) => settings.has(key) ? settings.get(key) : fallback }),
@@ -129,9 +129,23 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       postMessage: async message => { if (message.type === 'notes') noteRows = message.rows; },
       onDidReceiveMessage: handler => { sidebarMessage = handler; return disposable(); }
     } });
+    const outlineText = '# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾';
+    await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), outlineText);
+    await run('refresh');
+    const outline = noteRows.filter(row => row.noteId === '音楽');
+    assert.deepEqual(outline.map(row => row.label), ['節 🎵', '小節 `code`', '節 🎵', '末尾']);
+    assert.deepEqual(outline.map(row => row.parent), ['音楽', outline[0].id, '音楽', '音楽']);
+    assert.notEqual(outline[0].id, outline[2].id);
+    await sidebarMessage({ type: 'open', id: outline[1].id });
+    assert.equal(shown.options.selection.start.offset, outlineText.indexOf('#### 小節'));
+    await sidebarMessage({ type: 'command', id: outline[0].id, command: 'delete' });
+    assert.ok(provider.getChildren().some(note => note.id === '音楽'));
+    // Updating the document removes stale outline rows; tags have no outline.
+    assert.ok(tagRows.every(row => row.noteId === undefined));
     settings.set('tagStyles', [{ tag: 'TODO', mark: '🔴' }, { tag: 'DONE', mark: '🟢' }]);
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '# 音楽\n@DONE');
     await run('refresh');
+    assert.ok(noteRows.every(row => !row.noteId));
     assert.equal(noteRows.find(row => row.id === '音楽').label, '🟢 音楽');
     assert.equal(noteRows.find(row => row.id === '音楽').collapsedLabel, '🔴 音楽');
     settings.set('tagStyles', [{ tag: 'DONE', mark: '🟢' }, { tag: 'TODO', mark: '🔴' }]);

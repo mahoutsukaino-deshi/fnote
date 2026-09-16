@@ -13,7 +13,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     public readonly data: vscode.TreeDataProvider<Note>,
     private readonly extensionUri: vscode.Uri,
     private readonly onDrop: (id: string, target: string | undefined, position: DropPosition) => Promise<void>,
-    private readonly tagMode = false
+    private readonly tagMode = false,
+    private readonly collapsedLabel?: (note: Note) => string
   ) {}
   get selection(): Note[] { return this.current.filter(note => note.id === this.selectedId); }
   async collapseAll(): Promise<void> {
@@ -28,7 +29,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     if (!this.view) return;
     const rows = await Promise.all(notes.map(async note => {
       const item = await this.data.getTreeItem(note);
-      return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description };
+      return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, collapsedLabel: this.collapsedLabel?.(note) };
     }));
     await this.view.webview.postMessage({ type: 'notes', rows, selected: this.selectedId });
   }

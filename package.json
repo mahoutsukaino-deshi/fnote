@@ -218,6 +218,18 @@
           "default": "",
           "description": "タグの既定の背景色。空文字は背景色なし。本文エディタと検索結果に適用します。",
           "format": "color"
+        },
+        "fnote.tagHierarchy": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "uniqueItems": true
+          },
+          "description": "タグ一覧の親タグと子タグ（@なし）を定義します。例: {\"toyota\": [\"land-cruiser\", \"rav4\"]}。本文のタグ名は変更しません。親タグ選択で配下をまとめて表示します。複数の親は先に定義されたものを優先し、循環する定義は無視します。"
         }
       }
     },

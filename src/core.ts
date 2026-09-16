@@ -9,20 +9,62 @@ export interface TagStyleDefinition extends TagStyle { tag: string }
 export type TagStyles = Record<string, TagStyle> | readonly TagStyleDefinition[];
 export interface TagNode { label: string; tag: string; children: Map<string, TagNode> }
 
+export type TagHierarchy = Record<string, readonly string[]>;
+const naturalTagParent = (tag: string) => tag.includes('/') ? tag.slice(0, tag.lastIndexOf('/')) : '';
+function hierarchyParents(hierarchy: TagHierarchy): Map<string, string> {
+  const parents = new Map<string, string>();
+  const valid = (tag: unknown): tag is string => typeof tag === 'string'
+    && /^[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*$/u.test(tag) && !isTimeTag(tag);
+  for (const [parent, children] of Object.entries(hierarchy ?? {})) {
+    if (!valid(parent) || !Array.isArray(children)) continue;
+    for (const child of children) {
+      if (!valid(child) || parents.has(child)) continue;
+      const visited = new Set([child]);
+      let ancestor = parent;
+      while (ancestor && !visited.has(ancestor)) {
+        visited.add(ancestor);
+        ancestor = parents.get(ancestor) ?? naturalTagParent(ancestor);
+      }
+      if (!ancestor) parents.set(child, parent);
+    }
+  }
+  return parents;
+}
+function tagMatches(actual: string, selected: string, parents: Map<string, string>): boolean {
+  for (let tag = actual; tag; tag = parents.get(tag) ?? naturalTagParent(tag)) {
+    if (tag === selected) return true;
+  }
+  return false;
+}
+
 // Mask code without changing UTF-16 offsets used by VS Code positions.
 function maskCode(text: string): string {
   const chars = text.split('');
   const mask = (start: number, end: number) => { for (let i = start; i < end; i++) if (chars[i] !== '\n' && chars[i] !== '\r') chars[i] = ' '; };
   let offset = 0;
   let fence: string | undefined;
+  const listIndents: number[] = [];
   for (const line of text.split(/(?<=\n)/)) {
-    const match = line.match(/^ {0,3}(`{3,}|~{3,}|'{3,})/);
+    const whitespace = line.match(/^[ \t]*/)![0];
+    let indent = 0;
+    for (const char of whitespace) indent += char === '\t' ? 4 - indent % 4 : 1;
+    const content = line.slice(whitespace.length);
+    let marker = /^(?:[-+*]|\d{1,9}[.)])([ \t]+)(?=\S)/.exec(content);
+    if (!fence && content.trim()) {
+      while (listIndents.length && indent < listIndents[listIndents.length - 1]) listIndents.pop();
+      if (indent - (listIndents.at(-1) ?? 0) >= 4) marker = null;
+      if (marker) listIndents.push(indent + marker[0].length);
+    }
+    const base = listIndents.at(-1) ?? 0;
+    const relativeIndent = marker && !fence ? 0 : Math.max(0, indent - base);
+    const logicalLine = marker && !fence ? content.slice(marker[0].length) : content;
+    const match = relativeIndent < 4 ? logicalLine.match(/^(`{3,}|~{3,}|'{3,})/) : null;
     if (fence) {
       mask(offset, offset + line.length);
-      if (match && match[1][0] === fence[0] && match[1].length >= fence.length && line.slice(match[0].length).trim() === '') fence = undefined;
+      if (match && match[1][0] === fence[0] && match[1].length >= fence.length && logicalLine.slice(match[0].length).trim() === '') fence = undefined;
     } else if (match) {
       fence = match[1]; mask(offset, offset + line.length);
-    } else if (/^( {4}|\t)/.test(line)) mask(offset, offset + line.length);
+    } else if (relativeIndent >= 4) mask(offset, offset + line.length);
     offset += line.length;
   }
   const masked = chars.join('');
@@ -86,10 +128,11 @@ export function searchNotes(notes: readonly Note[], query: string): NoteSearchMa
 
 // A tag belongs to the nearest preceding heading. Keep that heading's ancestors,
 // but omit unrelated sibling sections and code-block headings.
-export function matchingLines(text: string, tag: string, tags = parseTags(text)): ContentMatch[] {
+export function matchingLines(text: string, tag: string, tags = parseTags(text), hierarchy: TagHierarchy = {}): ContentMatch[] {
+  const parents = hierarchyParents(hierarchy);
   const lines = new Map<number, ContentMatch>();
   for (const match of tags) {
-    if (match.tag !== tag && !match.tag.startsWith(`${tag}/`)) continue;
+    if (!tagMatches(match.tag, tag, parents)) continue;
     const start = text.lastIndexOf('\n', match.start - 1) + 1;
     const newline = text.indexOf('\n', match.end);
     lines.set(start, { start, text: text.slice(start, newline < 0 ? text.length : newline).trim() });
@@ -97,7 +140,7 @@ export function matchingLines(text: string, tag: string, tags = parseTags(text))
   return [...lines.values()];
 }
 
-export function matchingHeadings(text: string, tag: string, tags = parseTags(text)): HeadingMatch[] {
+export function matchingHeadings(text: string, tag: string, tags = parseTags(text), hierarchy: TagHierarchy = {}): HeadingMatch[] {
   const headings: { title: string; start: number; level: number }[] = [];
   const pattern = /^ {0,3}(#{1,6})(?:[\t ]+|(?=\r?$))(.*)$/gm;
   for (const match of maskCode(text).matchAll(pattern)) {
@@ -106,7 +149,7 @@ export function matchingHeadings(text: string, tag: string, tags = parseTags(tex
     headings.push({ title: title || '（無題の見出し）', start: match.index, level: match[1].length });
   }
   const roots: HeadingMatch[] = [];
-  const content = matchingLines(text, tag, tags);
+  const content = matchingLines(text, tag, tags, hierarchy);
   const stack: { level: number; node: HeadingMatch }[] = [];
   for (let index = 0; index < headings.length; index++) {
     const heading = headings[index];
@@ -153,20 +196,27 @@ export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedM
 export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);
 
-export function tagTree(notes: readonly TaggedNote[]): Map<string, TagNode> {
+export function tagTree(notes: readonly TaggedNote[], hierarchy: TagHierarchy = {}): Map<string, TagNode> {
   const roots = new Map<string, TagNode>();
-  for (const note of notes) for (const { tag } of note.tags) {
-    if (isTimeTag(tag)) continue;
-    let children = roots, path = '';
-    for (const label of tag.split('/')) {
-      path = path ? `${path}/${label}` : label;
-      if (!children.has(label)) children.set(label, { label, tag: path, children: new Map() });
-      children = children.get(label)!.children;
-    }
+  const nodes = new Map<string, TagNode>();
+  const parents = hierarchyParents(hierarchy);
+  function ensure(tag: string): TagNode {
+    const existing = nodes.get(tag);
+    if (existing) return existing;
+    const node: TagNode = { tag, label: tag.split('/').at(-1)!, children: new Map() };
+    nodes.set(tag, node);
+    const parent = parents.get(tag) ?? naturalTagParent(tag);
+    const siblings = parent ? ensure(parent).children : roots;
+    siblings.set(siblings.has(node.label) ? node.tag : node.label, node);
+    return node;
   }
+  for (const note of notes) for (const { tag } of note.tags) if (!isTimeTag(tag)) ensure(tag);
   return roots;
 }
-export const matchesTag = (note: TaggedNote, tag: string) => note.tags.some(t => t.tag === tag || t.tag.startsWith(`${tag}/`));
+export const matchesTag = (note: TaggedNote, tag: string, hierarchy: TagHierarchy = {}) => {
+  const parents = hierarchyParents(hierarchy);
+  return note.tags.some(t => tagMatches(t.tag, tag, parents));
+};
 export const within = (path: string, parent: string) => path === parent || path.startsWith(`${parent}/`);
 
 export function planNoteDrop(notes: readonly Note[], id: string, targetId: string | undefined, position: 'before' | 'after' | 'inside'): { destination: string; order: string[] } {
@@ -183,9 +233,9 @@ export function planNoteDrop(notes: readonly Note[], id: string, targetId: strin
   remaining.splice(index, 0, ...moving);
   return { destination, order: remaining };
 }
-export function filterTree<T extends TaggedNote>(notes: readonly T[], tag: string): T[] {
+export function filterTree<T extends TaggedNote>(notes: readonly T[], tag: string, hierarchy: TagHierarchy = {}): T[] {
   const keep = new Set();
-  for (const note of notes) if (matchesTag(note, tag)) {
+  for (const note of notes) if (matchesTag(note, tag, hierarchy)) {
     let id = note.id;
     while (id) { keep.add(id); id = id.includes('/') ? id.slice(0, id.lastIndexOf('/')) : ''; }
   }

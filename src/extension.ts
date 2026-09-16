@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, noteMark, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
-import type { Note, TagNode, TagStyles, HeadingMatch, ContentMatch } from './core';
+import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
 
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
@@ -60,7 +60,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return `${mark ? `${mark} ` : ''}${note.name}`;
   });
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
-  const tagParent = (tag: string) => tag.slice(0, Math.max(0, tag.lastIndexOf('/')));
+  const hierarchy = () => config().get<TagHierarchy>('tagHierarchy', {});
   const sortedTags = (nodes: Iterable<TagNode>) => [...nodes].sort((a, b) => {
     const ai = tagOrder.indexOf(a.tag), bi = tagOrder.indexOf(b.tag);
     return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi)
@@ -69,12 +69,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let tagDropQueue = Promise.resolve();
   const tagProvider: vscode.TreeDataProvider<TagNode> = {
     onDidChangeTreeData: tagEvents.event,
-    getChildren: n => sortedTags((n?.children || tagTree(notes)).values()),
+    getChildren: n => sortedTags((n?.children || tagTree(notes, hierarchy())).values()),
     getTreeItem: n => {
       const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark?.trim() || config().get<string>('defaultTagMark', '🏷️');
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = `@${n.tag}`;
-      item.description = String(notes.filter(note => matchesTag(note, n.tag)).length);
+      item.description = String(notes.filter(note => matchesTag(note, n.tag, hierarchy())).length);
       item.command = { command: 'fnote.filter', title: 'タグで検索', arguments: [n.tag] };
       return item;
     }
@@ -83,15 +83,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getChildren: () => [],
     getTreeItem: note => {
       const item = new vscode.TreeItem(note.name);
-      item.description = String(notes.filter(n => matchesTag(n, note.id)).length);
+      item.description = String(notes.filter(n => matchesTag(n, note.id, hierarchy())).length);
       return item;
     }
   }, context.extensionUri, async (id, target, position) => {
     const operation = tagDropQueue.catch(() => {}).then(async () => {
+      const rows = await tagRows();
+      const tagParent = (key: string) => rows.find(row => row.id === key)?.parent;
       const parent = tagParent(id);
       if (target === id || (target !== undefined && tagParent(target) !== parent)) return;
       if (target !== undefined && position === 'inside') return;
-      const rows = await tagRows();
       const siblings = rows.filter(row => row.parent === parent).map(row => row.id);
       if (!siblings.includes(id) || (target !== undefined && !siblings.includes(target))) return;
       const remaining = siblings.filter(key => key !== id);
@@ -113,7 +114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await visit(node.children.values(), node.tag);
       }
     }
-    await visit(tagTree(notes).values(), '');
+    await visit(tagTree(notes, hierarchy()).values(), '');
     return rows;
   }
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.tags', tags));
@@ -229,8 +230,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const hitMap = new Map(hits.map(hit => [hit.note.id, hit]));
     const subset = activeQuery
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
-      : filterTree(notes, tag);
-    const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag);
+      : filterTree(notes, tag, hierarchy());
+    const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
     const title = activeQuery ? `検索: ${activeQuery}` : `@${tag}`;
     const count = activeQuery ? hits.length : notes.filter(isMatch).length;
     const tagClasses = new Map<string, string>();
@@ -273,19 +274,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return activeQuery || !note ? undefined : minutesForDate(note.text, headingLines(heading), tag, note.tags);
     };
     const ownMinutes = new Map(subset.map(note => [note.id, activeQuery ? undefined
-      : minutesForDate(note.text, matchingLines(note.text, tag, note.tags), tag, note.tags)]));
+      : minutesForDate(note.text, matchingLines(note.text, tag, note.tags, hierarchy()), tag, note.tags)]));
     const noteMinutes = (id: string): number | undefined =>
       sumMinutes(subset.filter(note => within(note.id, id)).map(note => ownMinutes.get(note.id)));
     const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
     const noteContent = (note: Note): string => {
       if (activeQuery) return contentBranch(note.id, hitMap.get(note.id)?.lines ?? []);
-      const headings = matchingHeadings(note.text, tag, note.tags);
+      const headings = matchingHeadings(note.text, tag, note.tags, hierarchy());
       const assigned = new Set<number>();
       const collect = (nodes: HeadingMatch[]): void => {
         for (const node of nodes) { node.lines.forEach(line => assigned.add(line.start)); collect(node.children); }
       };
       collect(headings);
-      const preamble = matchingLines(note.text, tag, note.tags).filter(line => !assigned.has(line.start));
+      const preamble = matchingLines(note.text, tag, note.tags, hierarchy()).filter(line => !assigned.has(line.start));
       // The initial H1 often repeats the note name created by add(). Render its
       // contents directly under the note instead of adding another title row.
       const first = headings[0];

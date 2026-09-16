@@ -7,7 +7,11 @@
   let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
   const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pending;
-  const within = (id, parent) => id === parent || id.startsWith(parent + '/');
+  const within = (id, parent) => {
+    if (!tagMode) return id === parent || id.startsWith(parent + '/');
+    for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
+    return false;
+  };
   const persist = () => api.setState({ selected, collapsed: [...collapsed], dateBranches: [...dateBranches] });
   const send = (type, id, rest = {}) => api.postMessage({ type, id, ...rest });
   function select(id, focus = false) {
@@ -133,7 +137,7 @@
     }
     if (message.type === 'select') {
       let id = message.id;
-      while (id.includes('/')) { id = id.slice(0, id.lastIndexOf('/')); collapsed.delete(id); }
+      while ((id = rows.find(row => row.id === id)?.parent)) collapsed.delete(id);
       selected = message.id; persist(); render();
       tree.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
     }

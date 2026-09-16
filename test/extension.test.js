@@ -111,6 +111,16 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
 
     assert.equal((await fs.readFile(path.join(temp, '.fnote/音楽/index.md'), 'utf8')), '# 音楽\n\n');
     await run('filter', '2026'); assert.equal(panelCount, 1); assert.match(html, /音楽/); assert.match(html, /曲/); assert.match(html, /1 件/);
+    settings.set('tagHierarchy', { 状態: ['TODO', 'WAIT'] });
+    await run('refresh');
+    assert.equal(tagRows.find(row => row.id === 'TODO').parent, '状態');
+    assert.equal(tagRows.find(row => row.id === '状態').description, '1');
+    await run('filter', '状態');
+    assert.match(html, /1 件のノート/);
+    assert.match(html, /@TODO/);
+    settings.delete('tagHierarchy');
+    await run('refresh');
+    assert.equal(tagRows.find(row => row.id === 'TODO').parent, '');
     // Exercise actual sidebar messages, including file moves and insertion order.
     let sidebarMessage, noteRows = [];
     const sidebar = views.get('fnote.notes').webviewProvider;

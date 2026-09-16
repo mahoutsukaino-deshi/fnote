@@ -255,3 +255,24 @@ test('深いリストのタグを認識し、リスト内のコードは除外�
   const dated = '- 親\n  - 子\n    - @2026/09/16 @30m';
   assert.equal(minutesForDate(dated, matchingLines(dated, '2026/09/16'), '2026/09/16'), 30);
 });
+
+test('設定したタグ階層を表示し、親タグから子孫の本文を検索する（#11）', () => {
+  const hierarchy = { car: ['toyota'], toyota: ['land-cruiser', 'rav4'] };
+  const text = '# 車\n@land-cruiser 仕様\n@rav4 比較\n@other 対象外';
+  const notes = [{ id: '親', tags: [] }, { id: '親/子', tags: parseTags(text) }];
+  const tree = tagTree(notes, hierarchy);
+  assert.deepEqual([...tree.get('car').children.get('toyota').children.keys()], ['land-cruiser', 'rav4']);
+  assert.equal(tree.has('land-cruiser'), false);
+  assert.deepEqual(filterTree(notes, 'toyota', hierarchy).map(note => note.id), ['親', '親/子']);
+  assert.equal(matchingLines(text, 'car', parseTags(text), hierarchy).length, 2);
+  assert.equal(matchingHeadings(text, 'toyota', parseTags(text), hierarchy)[0].lines.length, 2);
+  assert.equal(matchingLines(text, 'rav4', parseTags(text), hierarchy).length, 1);
+  assert.equal(tagTree([], hierarchy).size, 0);
+});
+test('タグ階層の循環・複数親・同名の末尾を持つタグを安全に扱う', () => {
+  const notes = [{ id: 'n', tags: parseTags('@a @b @x/item @y/item') }];
+  const tree = tagTree(notes, { a: ['b'], b: ['a'], other: ['b'], group: ['x/item', 'y/item'] });
+  assert.equal(tree.get('a').children.get('b').tag, 'b');
+  assert.equal(tree.has('other'), false);
+  assert.deepEqual([...tree.get('group').children.values()].map(node => node.tag), ['x/item', 'y/item']);
+});

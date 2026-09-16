@@ -37,7 +37,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { return await fn(...args); }
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
   };
-  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'), config().get<string>('defaultTagMark', '🏷️'));
+  const marks = (n: Note) => noteMark(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '🗒️'), config().get<string>('defaultTagMark', '🏷️'), config().get<TagHierarchy>('tagHierarchy', {}));
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
     onDidChangeTreeData: events.event,

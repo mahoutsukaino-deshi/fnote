@@ -4,7 +4,7 @@ export interface Note extends TaggedNote { parent: string; name: string; text: s
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }
 export interface HeadingMatch { title: string; start: number; matched: boolean; lines: ContentMatch[]; children: HeadingMatch[] }
-export interface TagStyle { mark?: string; color?: string; backgroundColor?: string }
+export interface TagStyle { excludeFromNoteMark?: boolean; mark?: string; color?: string; backgroundColor?: string }
 export interface TagStyleDefinition extends TagStyle { tag: string }
 export type TagStyles = Record<string, TagStyle> | readonly TagStyleDefinition[];
 export interface TagNode { label: string; tag: string; children: Map<string, TagNode> }
@@ -183,12 +183,22 @@ export function styleFor(tag: string, styles: TagStyles): TagStyle {
   return key === undefined ? {} : definitions.get(key)!;
 }
 
-export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️'): string {
+export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️', hierarchy: TagHierarchy = {}): string {
   const regularTags = tags.filter(tag => !isDateTag(tag.tag) && !isTimeTag(tag.tag));
-  if (regularTags.length === 0) return untaggedMark;
   const entries = styleEntries(styles);
   const definitions = new Map([...entries].reverse());
-  const applicable = new Set(regularTags.map(tag => styleKeyFor(tag.tag, definitions)));
+  const parents = hierarchyParents(hierarchy);
+  const excluded = (tag: string): boolean => {
+    for (let key = tag; key; key = parents.get(key) ?? naturalTagParent(key)) {
+      const value = definitions.get(key)?.excludeFromNoteMark;
+      if (typeof value === 'boolean') return value;
+    }
+    return false;
+  };
+  const eligible = regularTags.filter(tag => !excluded(tag.tag))
+    .map(tag => styleKeyFor(tag.tag, definitions));
+  if (eligible.length === 0) return untaggedMark;
+  const applicable = new Set(eligible);
   const visited = new Set<string>();
   for (const [key, style] of entries) {
     if (visited.has(key)) continue;

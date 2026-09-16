@@ -8,6 +8,7 @@ const Module = require('node:module');
 
 test('拡張機能: 保存・再読込・子ノート移動・循環防止・検索・削除', async () => {
   const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'fnote-test-'));
+  const contexts = new Map();
   const commands = new Map(), views = new Map(), errors = [], inputs = [], picks = [];
   const disposable = () => ({ dispose() {} });
   const uri = p => ({ fsPath: p, toString: () => `file://${p}` });
@@ -23,8 +24,8 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     TreeItem: class { constructor(label, collapsibleState) { Object.assign(this, { label, collapsibleState }); } },
     EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
     RelativePattern: class {}, DataTransferItem: class { constructor(value) { this.value = value; } },
-    WorkspaceEdit: class { ops = []; renameFile(a, b) { this.ops.push(() => fs.rename(a.fsPath, b.fsPath)); } deleteFile(a) { this.ops.push(() => fs.rm(a.fsPath, { recursive: true })); } },
-    commands: { registerCommand(name, fn) { commands.set(name, fn); return disposable(); } },
+    WorkspaceEdit: class { ops = []; replace(u, range, value) { this.ops.push(async () => { const text = await fs.readFile(u.fsPath, 'utf8'); await fs.writeFile(u.fsPath, text.slice(0, range.start.offset) + value + text.slice(range.end.offset)); }); } renameFile(a, b) { this.ops.push(() => fs.rename(a.fsPath, b.fsPath)); } deleteFile(a) { this.ops.push(() => fs.rm(a.fsPath, { recursive: true })); } },
+    commands: { executeCommand: (name, ...args) => name === 'setContext' ? contexts.set(...args) : commands.get(name)(...args), registerCommand(name, fn) { commands.set(name, fn); return disposable(); } },
     workspace: {
       workspaceFolders: [{ uri: uri(temp) }], textDocuments: documents,
       getConfiguration: () => ({ inspect: key => ({ globalValue: settings.get(key) }), get: (key, fallback) => settings.has(key) ? settings.get(key) : fallback }),
@@ -34,7 +35,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
         createDirectory: u => fs.mkdir(u.fsPath, { recursive: true }), stat: u => fs.stat(u.fsPath).catch(fileError)
       },
       applyEdit: async edit => { for (const op of edit.ops) await op(); return true; },
-      openTextDocument: async u => ({ uri: u, getText: () => '', positionAt: offset => ({ offset }) }),
+      openTextDocument: async u => { const text = documents.find(doc => doc.uri.toString() === u.toString())?.getText() ?? await fs.readFile(u.fsPath, 'utf8'); return { uri: u, getText: () => text, positionAt: offset => ({ offset }) }; },
       createFileSystemWatcher: () => ({ ...disposable(), onDidCreate: disposable, onDidDelete: disposable, onDidChange: disposable }),
       onDidChangeTextDocument: disposable, onDidCloseTextDocument: disposable, onDidChangeConfiguration: disposable
     },
@@ -87,6 +88,8 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       onDidReceiveMessage: handler => { tagMessage = handler; return disposable(); }
     } });
     await tagMessage({ type: 'ready' });
+    await tagMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true });
+    assert.equal(contexts.get('fnote.tagsAllCollapsed'), true);
     assert.match(tagHtml, /data-tags="true"/);
     assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
     for (const mark of [undefined, '', '   ']) {
@@ -129,9 +132,43 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       postMessage: async message => { if (message.type === 'notes') noteRows = message.rows; },
       onDidReceiveMessage: handler => { sidebarMessage = handler; return disposable(); }
     } });
+    await sidebarMessage({ type: 'expansionState', allCollapsed: false, hasBranches: true });
+    assert.equal(contexts.get('fnote.notesAllCollapsed'), false);
+    assert.equal(contexts.get('fnote.tagsAllCollapsed'), true);
+    const outlineText = '# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾';
+    await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), outlineText);
+    await run('refresh');
+    const outline = noteRows.filter(row => row.noteId === '音楽');
+    assert.deepEqual(outline.map(row => row.label), ['節 🎵', '小節 `code`', '節 🎵', '末尾']);
+    assert.deepEqual(outline.map(row => row.parent), ['音楽', outline[0].id, '音楽', '音楽']);
+    assert.notEqual(outline[0].id, outline[2].id);
+    await sidebarMessage({ type: 'open', id: outline[1].id });
+    assert.equal(shown.options.selection.start.offset, outlineText.indexOf('#### 小節'));
+    await sidebarMessage({ type: 'command', id: outline[0].id, command: 'delete' });
+    assert.ok(provider.getChildren().some(note => note.id === '音楽'));
+    // Updating the document removes stale outline rows; tags have no outline.
+    assert.ok(tagRows.every(row => row.noteId === undefined));
+    await sidebarMessage({ type: 'open', id: '音楽' });
+    assert.equal(shown.options.preserveFocus, true);
+    inputs.push('音楽');
+    await sidebarMessage({ type: 'command', id: '音楽', command: 'rename' });
+    assert.equal(await fs.readFile(path.join(temp, '.fnote/音楽/index.md'), 'utf8'), outlineText);
+    const dirty = { uri: uri(path.join(temp, '.fnote/音楽/index.md')), getText: () => '# 編集中のタイトル\n## 子の見出し' };
+    documents.push(dirty);
+    await run('refresh');
+    assert.match(noteRows.find(row => row.id === '音楽').label, /編集中のタイトル$/);
+    assert.equal(noteRows.find(row => row.noteId === '音楽').label, '子の見出し');
+    documents.pop();
+    await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '# 変更後\r\n## 子はそのまま\r\n本文');
+    await run('refresh');
+    assert.match(noteRows.find(row => row.id === '音楽').label, /変更後$/);
+    inputs.push('音楽');
+    await sidebarMessage({ type: 'command', id: '音楽', command: 'rename' });
+    assert.equal(await fs.readFile(path.join(temp, '.fnote/音楽/index.md'), 'utf8'), '# 音楽\r\n## 子はそのまま\r\n本文');
     settings.set('tagStyles', [{ tag: 'TODO', mark: '🔴' }, { tag: 'DONE', mark: '🟢' }]);
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '# 音楽\n@DONE');
     await run('refresh');
+    assert.ok(noteRows.every(row => !row.noteId));
     assert.equal(noteRows.find(row => row.id === '音楽').label, '🟢 音楽');
     assert.equal(noteRows.find(row => row.id === '音楽').collapsedLabel, '🔴 音楽');
     settings.set('tagStyles', [{ tag: 'DONE', mark: '🟢' }, { tag: 'TODO', mark: '🔴' }]);
@@ -246,15 +283,15 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '# 作業\n## 詳細\n@2026/09/13 @10:30-12:00 @10m\n@2026/09/13 @1h @TODO\n@2026/09/14 @8h');
     await run('refresh'); await run('filter', '2026/09/13');
     assert.match(html, /詳細<\/button><span class="work-time">\(2h40m\)<\/span>/);
-    for (const title of ['作業', '曲', '音楽']) {
+    for (const title of ['作業', '音楽']) {
       assert.ok(html.includes(`${title}</button><span class="work-time">(2h40m)</span>`));
     }
-    assert.equal((html.match(/class="work-time"/g) || []).length, 5);
+    assert.equal((html.match(/class="work-time"/g) || []).length, 4);
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '@2026/09/13 @20m');
     await fs.appendFile(path.join(temp, '.fnote/音楽/曲/index.md'), '\n## 別作業\n@2026/09/13 @20m');
     await run('refresh');
     assert.match(html, /作業<\/button><span class="work-time">\(3h\)<\/span>/);
-    assert.match(html, /曲<\/button><span class="work-time">\(3h\)<\/span>/);
+    assert.match(html, /data-id="音楽\/曲" class="match">[^<]*作業<\/button>/);
     assert.match(html, /音楽<\/button><span class="work-time">\(3h20m\)<\/span>/);
     assert.match(html, /<h1>.*@2026\/09\/13<\/span><span class="work-time">\(3h20m\)<\/span><\/h1>/);
     inputs.push('別ノート'); await run('add');
@@ -285,7 +322,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run('delete', grandchild);
     picks.push({ id: child.id }); await run('move', parent); assert.match(errors.pop(), /子ノート/);
     picks.push({ id: '' }); await run('move', child); assert.equal(provider.getChildren().length, 2);
-    child = provider.getChildren().find(n => n.name === '曲');
+    child = provider.getChildren().find(n => n.id === '曲');
     inputs.push('音楽'); await run('rename', child); assert.match(errors.pop(), /同名/);
     inputs.push('新しい曲'); await run('rename', child);
     const renamed = provider.getChildren().find(n => n.name === '新しい曲');

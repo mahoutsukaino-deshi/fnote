@@ -140,7 +140,7 @@ export function matchingLines(text: string, tag: string, tags = parseTags(text),
   return [...lines.values()];
 }
 
-export function matchingHeadings(text: string, tag: string, tags = parseTags(text), hierarchy: TagHierarchy = {}): HeadingMatch[] {
+export function parseHeadings(text: string): { title: string; start: number; level: number }[] {
   const headings: { title: string; start: number; level: number }[] = [];
   const pattern = /^ {0,3}(#{1,6})(?:[\t ]+|(?=\r?$))(.*)$/gm;
   for (const match of maskCode(text).matchAll(pattern)) {
@@ -148,6 +148,11 @@ export function matchingHeadings(text: string, tag: string, tags = parseTags(tex
     const title = raw.replace(/^ {0,3}#{1,6}[\t ]*/, '').replace(/[\t ]+#+[\t ]*\r?$/, '').trim();
     headings.push({ title: title || '（無題の見出し）', start: match.index, level: match[1].length });
   }
+  return headings;
+}
+
+export function matchingHeadings(text: string, tag: string, tags = parseTags(text), hierarchy: TagHierarchy = {}): HeadingMatch[] {
+  const headings = parseHeadings(text);
   const roots: HeadingMatch[] = [];
   const content = matchingLines(text, tag, tags, hierarchy);
   const stack: { level: number; node: HeadingMatch }[] = [];

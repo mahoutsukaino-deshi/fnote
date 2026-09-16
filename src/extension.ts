@@ -4,7 +4,7 @@ import type { DropPosition } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, noteMark, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
+import { parseHeadings, parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, noteMark, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
 
 function isMissing(error: unknown): boolean {
@@ -130,7 +130,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file(id).toString());
           text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8');
         }
-        found.push({ id, parent, name: path.posix.basename(id), text, tags: parseTags(text) });
+        found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text) });
       }
       for (const [name, type] of entries) if (type === vscode.FileType.Directory && !name.startsWith('.')) await walk(id ? `${id}/${name}` : name, id);
     }
@@ -172,14 +172,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   }
-  async function open(id: string, offset?: number) {
+  async function open(id: string, offset?: number, preserveFocus = false) {
     if (!notes.some(n => n.id === id)) return;
     try { await vscode.workspace.fs.stat(file(id)); }
     catch (error) { if (!isMissing(error)) throw error; await vscode.workspace.fs.writeFile(file(id), Buffer.from('')); }
     const doc = await vscode.workspace.openTextDocument(file(id));
     const position = offset === undefined ? undefined : doc.positionAt(offset);
     await vscode.window.showTextDocument(doc, {
-      preview: false,
+      preview: false, preserveFocus,
       ...(position ? { selection: new vscode.Range(position, position) } : {})
     });
     const note = notes.find(n => n.id === id);
@@ -199,11 +199,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { await vscode.workspace.fs.stat(uri(id)); } catch (error) { if (isMissing(error)) return; throw error; }
     throw new Error('同名のノートが存在します。');
   }
-  async function relocate(id: string, destination: string) {
-    if (id === destination) return;
-    await ensureAbsent(destination);
+  async function relocate(id: string, destination: string, title?: string) {
+    if (id === destination && title === undefined) return;
+    if (id !== destination) await ensureAbsent(destination);
     const edit = new vscode.WorkspaceEdit();
-    edit.renameFile(uri(id), uri(destination), { overwrite: false });
+    if (title !== undefined) {
+      const doc = await vscode.workspace.openTextDocument(file(id));
+      const text = doc.getText();
+      const heading = parseHeadings(text).find(item => item.level === 1);
+      const start = heading?.start ?? 0;
+      const newline = text.indexOf('\n', start);
+      const end = heading ? (newline < 0 ? text.length : newline) : 0;
+      const eol = text.includes('\r\n') ? '\r\n' : '\n';
+      edit.replace(doc.uri, new vscode.Range(doc.positionAt(start), doc.positionAt(end)),
+        heading ? `# ${title}${text[end - 1] === '\r' ? '\r' : ''}` : `# ${title}${eol}${eol}`);
+    }
+    if (id !== destination) edit.renameFile(uri(id), uri(destination), { overwrite: false });
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('移動できませんでした。');
     order = order.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry);
     await context.globalState.update(`order:${root.toString()}`, order);
@@ -301,7 +312,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return contentBranch(note.id, preamble) + headingBranch(note.id, headings);
     };
-    const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${h(marks(n))} ${h(n.name)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
+    const noteTitle = (note: Note): string => {
+      const title = parseHeadings(note.text).find(heading => heading.level === 1);
+      return title ? fragment(note.id, title.start, note.name) : h(note.name);
+    };
+    const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${h(marks(n))} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
     const body = subset.length ? branch('') : '<p>対象のノートはありません。</p>';
     const titleHtml = activeQuery ? h(title) : renderTagText(title, parseTags(title), classFor);
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
@@ -338,6 +353,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.title = `fnote: ${title}`; renderResults(); panel.reveal();
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
+  command('expandNotes', () => tree.expandAll());
+  command('expandTags', () => tags.expandAll());
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
@@ -345,7 +362,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('rename', async (n?: Note) => {
     n = selected(n); if (!n) return;
     const name = await vscode.window.showInputBox({ value: n.name, prompt: '新しいノート名', validateInput: validateName });
-    if (name) await relocate(n.id, n.parent ? `${n.parent}/${name}` : name);
+    if (name) {
+      const destination = n.parent ? `${n.parent}/${name}` : name;
+      await relocate(n.id, destination, name);
+      const renamed = notes.find(note => note.id === destination);
+      if (renamed) await tree.reveal(renamed);
+    }
   });
   command('move', async (n?: Note) => {
     n = selected(n); if (!n) return;

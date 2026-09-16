@@ -87,12 +87,26 @@
       {
         "command": "fnote.collapseNotes",
         "title": "fnote: ノート一覧をすべて折りたたむ",
-        "icon": "$(collapse-all)"
+        "icon": "$(collapse-all)",
+        "enablement": "fnote.notesHasBranches"
       },
       {
         "command": "fnote.collapseTags",
         "title": "fnote: タグ一覧をすべて折りたたむ",
-        "icon": "$(collapse-all)"
+        "icon": "$(collapse-all)",
+        "enablement": "fnote.tagsHasBranches"
+      },
+      {
+        "command": "fnote.expandNotes",
+        "title": "fnote: ノート一覧をすべて展開",
+        "icon": "$(expand-all)",
+        "enablement": "fnote.notesAllCollapsed && fnote.notesHasBranches"
+      },
+      {
+        "command": "fnote.expandTags",
+        "title": "fnote: タグ一覧をすべて展開",
+        "icon": "$(expand-all)",
+        "enablement": "fnote.tagsAllCollapsed && fnote.tagsHasBranches"
       }
     ],
     "menus": {
@@ -114,12 +128,22 @@
         },
         {
           "command": "fnote.collapseNotes",
-          "when": "view == fnote.notes",
+          "when": "view == fnote.notes && !fnote.notesAllCollapsed",
           "group": "navigation@3"
         },
         {
           "command": "fnote.collapseTags",
-          "when": "view == fnote.tags",
+          "when": "view == fnote.tags && !fnote.tagsAllCollapsed",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fnote.expandNotes",
+          "when": "view == fnote.notes && fnote.notesAllCollapsed",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fnote.expandTags",
+          "when": "view == fnote.tags && fnote.tagsAllCollapsed",
           "group": "navigation@3"
         }
       ]

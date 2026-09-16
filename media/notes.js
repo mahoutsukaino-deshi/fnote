@@ -30,6 +30,7 @@
       for (const note of rows.filter(row => row.parent === parent)) {
         const hasChildren = rows.some(row => row.parent === note.id);
         const row = document.createElement('div'); row.className = 'row'; row.dataset.id = note.id;
+        row.dataset.outline = String(Boolean(note.noteId));
         row.draggable = !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
         row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.id;
         if (hasChildren && !collapsed.has(note.id)) hasExpandedBranch = true;

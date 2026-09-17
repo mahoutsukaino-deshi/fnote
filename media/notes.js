@@ -40,7 +40,18 @@
         toggle.setAttribute('aria-label', collapsed.has(note.id) ? '展開' : '折りたたむ');
         toggle.onclick = e => { e.stopPropagation(); if (hasChildren) { collapsed.has(note.id) ? collapsed.delete(note.id) : collapsed.add(note.id); persist(); render(); select(note.id, true); send('select', note.id); } };
         const label = document.createElement('span'); label.className = 'label'; label.textContent = collapsed.has(note.id) ? (note.collapsedLabel ?? note.label) : note.label;
-        row.append(toggle, label);
+        row.append(toggle);
+        const appearance = collapsed.has(note.id) ? note.collapsedAppearance : note.appearance;
+        const icon = /^\$\(([a-z0-9-]+)\)$/.exec(appearance?.mark || '');
+        if (icon) {
+          const mark = document.createElement('span');
+          mark.className = `note-icon codicon codicon-${icon[1]}`;
+          mark.setAttribute('aria-hidden', 'true');
+          if (appearance.color) mark.style.color = appearance.color;
+          if (label.textContent.startsWith(appearance.mark + ' ')) label.textContent = label.textContent.slice(appearance.mark.length + 1);
+          row.append(mark);
+        }
+        row.append(label);
         if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);
         row.onclick = () => { select(note.id, true); send('open', note.id); };

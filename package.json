@@ -174,8 +174,8 @@
         },
         "fnote.defaultTagMark": {
           "type": "string",
-          "default": "🏷️",
-          "description": "タグ一覧で印が未設定または空のタグに表示する印。文字・絵文字を指定できます。空文字で非表示になります。"
+          "default": "$(circle-filled-compact)",
+          "description": "タグの既定の印。$(circle-filled-compact) などのCodicon名、文字・絵文字を指定できます。空文字で非表示になります。"
         },
         "fnote.tagColor": {
           "type": "string",
@@ -214,7 +214,8 @@
                 "minLength": 1
               },
               "mark": {
-                "type": "string"
+                "type": "string",
+                "description": "文字・絵文字、または $(circle-filled-compact) などのCodicon名。"
               },
               "color": {
                 "type": "string",
@@ -229,6 +230,11 @@
                 "type": "boolean",
                 "default": false,
                 "description": "true の場合、ノートタイトルの印の候補と優先順位判定から除外します。階層の子タグにも継承し、子で false を指定すると解除します。タグ一覧の印・色には影響しません。"
+              },
+              "markColor": {
+                "type": "string",
+                "format": "color",
+                "description": "Codiconの色。未指定ならcolor、それも未指定ならタグ名から生成したHSL色を使用します。絵文字の色は変更しません。"
               }
             },
             "additionalProperties": false
@@ -237,7 +243,8 @@
             "type": "object",
             "properties": {
               "mark": {
-                "type": "string"
+                "type": "string",
+                "description": "文字・絵文字、または $(circle-filled-compact) などのCodicon名。"
               },
               "color": {
                 "type": "string",
@@ -251,11 +258,16 @@
                 "type": "boolean",
                 "default": false,
                 "description": "true の場合、ノートタイトルの印の候補と優先順位判定から除外します。階層の子タグにも継承し、子で false を指定すると解除します。タグ一覧の印・色には影響しません。"
+              },
+              "markColor": {
+                "type": "string",
+                "format": "color",
+                "description": "Codiconの色。未指定ならcolor、それも未指定ならタグ名から生成したHSL色を使用します。絵文字の色は変更しません。"
               }
             },
             "additionalProperties": false
           },
-          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、color、backgroundColor、excludeFromNoteMarkを指定。親タグの設定は子タグにも適用。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
+          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、markColor、color、backgroundColor、excludeFromNoteMarkを指定。親タグの設定は子タグにも適用。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
         },
         "fnote.tagBackgroundColor": {
           "type": "string",

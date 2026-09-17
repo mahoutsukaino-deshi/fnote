@@ -113,7 +113,7 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
 | --- | --- | --- |
 | `fnote.storagePath` | `"~/.fnote"` | 共通の保存先 |
 | `fnote.untaggedNoteMark` | `"🗒️"` | 通常タグがないノートの印 |
-| `fnote.defaultTagMark` | `"🏷️"` | タグ一覧で印が未設定・空の場合の印 |
+| `fnote.defaultTagMark` | `"$(circle-filled-compact)"` | タグ一覧で印が未設定・空の場合の印 |
 | `fnote.tagColor` | `"#00BFFF"` | タグの既定文字色 |
 | `fnote.tagBackgroundColor` | `""` | タグの既定背景色（空文字は背景なし） |
 | `fnote.tagStyles` | 下記参照 | タグごとの印・文字色・背景色 |
@@ -134,7 +134,7 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
 {
   "fnote.storagePath": "~/.fnote",
   "fnote.untaggedNoteMark": "🗒️",
-  "fnote.defaultTagMark": "🏷️",
+  "fnote.defaultTagMark": "$(circle-filled-compact)",
   "fnote.tagColor": "#00BFFF",
   "fnote.tagBackgroundColor": "",
   "fnote.tagStyles": [
@@ -222,3 +222,20 @@ GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再�
 ```
 
 `@land-cruiser`・`@rav4` があると、タグ一覧では `toyota` の配下に表示します。親タグを選ぶと子孫のタグを持つノートと該当行をまとめて表示します。使用されていないタグは表示しません。複数段の定義も可能です。複数の親を定義した場合は先の定義を優先し、循環する定義は無視します。設定は一覧の分類と `excludeFromNoteMark` の継承に適用されます。本文のタグ名や色、除外後に残る印候補の優先順位は変更しません。
+
+
+### Codiconsとタグの自動色
+
+`fnote.tagStyles` の `mark` に `$(アイコン名)` を指定すると、[VS Code標準のCodicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) をノート一覧・タグ一覧・検索結果の印に使えます。絵文字も引き続き指定できます。
+
+```json
+"fnote.tagStyles": [
+  { "tag": "TODO", "mark": "$(circle-filled-compact)", "markColor": "#FF5555" },
+  { "tag": "参考", "mark": "$(book)", "color": "#66AAFF" },
+  { "tag": "完了", "mark": "✅" }
+]
+```
+
+未設定タグの印は `$(circle-filled-compact)` です。`fnote.defaultTagMark` を設定すると変更できます。Codiconの色は `markColor` → `color` → 自動色の順で決まります。自動色は64色相×4彩度×4明度の1024色のHSLパレットからタグ名に基づいて選ぶため、再起動しても同じ色になります。明度を42〜60%に制限し、黒・白を避けます。本文のタグ文字色の設定は従来どおりです。絵文字そのものの色は変更しません。
+
+CodiconsのフォントとCSSは拡張機能に同梱し、オフラインでも利用できます。出典・ライセンスは `media/codicons` に収録しています。

@@ -322,3 +322,28 @@ test('除外属性は設定したタグ階層を継承し、子の色・印だ�
     assert.equal(styleFor('資料', definitions).mark, '📚');
   }
 });
+
+
+test('Codiconsの既定アイコンとタグ名から生成する1024色のHSLパレット', () => {
+  const { automaticTagColor, tagAppearance, noteAppearance } = require('../dist/core');
+  const first = tagAppearance('未設定', {});
+  assert.equal(first.mark, '$(circle-filled-compact)');
+  assert.equal(first.color, automaticTagColor('未設定'));
+  assert.equal(first.color, tagAppearance('未設定', {}).color);
+  const colors = new Set(Array.from({ length: 20000 }, (_, i) => automaticTagColor(`tag${i}`)));
+  assert.equal(colors.size, 1024);
+  for (const color of colors) {
+    const [, hue, saturation, lightness] = /^hsl\(([\d.]+), (\d+)%, (\d+)%\)$/.exec(color);
+    assert.ok(+hue >= 0 && +hue < 360);
+    assert.ok(+saturation >= 55 && +saturation <= 79);
+    assert.ok(+lightness >= 42 && +lightness <= 60);
+  }
+  const styles = [{ tag: 'TODO', mark: '$(check)', color: '#112233', markColor: '#445566' }];
+  assert.deepEqual(tagAppearance('TODO/子', styles), { mark: '$(check)', color: '#445566' });
+  assert.equal(tagAppearance('色のみ', { 色のみ: { color: '#123456' } }).color, '#123456');
+  assert.equal(tagAppearance('絵文字', { 絵文字: { mark: '✅' } }).mark, '✅');
+  assert.equal(tagAppearance('無印', {}, '').mark, '');
+  assert.equal(noteAppearance(parseTags('@未設定'), {}, '🗒️').mark, first.mark);
+  assert.equal(noteAppearance(parseTags('@TODO'), styles, '').color, '#445566');
+  assert.equal(noteAppearance(parseTags('@参考 @TODO'), [{ tag: '参考', mark: '$(book)', excludeFromNoteMark: true }, ...styles], '').mark, '$(check)');
+});

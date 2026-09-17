@@ -347,3 +347,21 @@ test('Codiconsの既定アイコンとタグ名から生成する1024色のHSL�
   assert.equal(noteAppearance(parseTags('@TODO'), styles, '').color, '#445566');
   assert.equal(noteAppearance(parseTags('@参考 @TODO'), [{ tag: '参考', mark: '$(book)', excludeFromNoteMark: true }, ...styles], '').mark, '$(check)');
 });
+
+
+test('階層タグは親のアイコンと色を継承し、子のアイコン指定だけを優先する', () => {
+  const { tagAppearance, noteAppearance } = require('../dist/core');
+  const hierarchy = { 車: ['toyota'], toyota: ['rav4'] };
+  const styles = [{ tag: '車', mark: '$(symbol-color)', markColor: '#123456' }, { tag: 'toyota', color: '#ffffff' }];
+  const parent = tagAppearance('車', styles, undefined, hierarchy);
+  assert.deepEqual(tagAppearance('toyota', styles, undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('rav4', styles, undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('rav4/詳細', styles, undefined, hierarchy), parent);
+  assert.deepEqual(noteAppearance(parseTags('@rav4'), styles, '', undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('車/分類/子', styles), parent);
+  const override = [...styles, { tag: 'rav4', mark: '🚗', markColor: '#abcdef' }];
+  assert.deepEqual(tagAppearance('rav4', override, undefined, hierarchy), { mark: '🚗', color: '#abcdef' });
+  assert.equal(noteAppearance(parseTags('@rav4'), override, '', undefined, hierarchy).mark, '🚗');
+  assert.deepEqual(tagAppearance('rav4', {}, undefined, hierarchy), tagAppearance('車', {}, undefined, hierarchy));
+  assert.equal(noteAppearance(parseTags('@rav4'), [{ ...styles[0], excludeFromNoteMark: true }], '🗒️', undefined, hierarchy).mark, '🗒️');
+});

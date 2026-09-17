@@ -72,7 +72,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onDidChangeTreeData: tagEvents.event,
     getChildren: n => sortedTags((n?.children || tagTree(notes, hierarchy())).values()),
     getTreeItem: n => {
-      const mark = styleFor(n.tag, config().get<TagStyles>('tagStyles', {})).mark?.trim() || config().get<string>('defaultTagMark', '$(circle-filled-compact)');
+      const mark = tagAppearance(n.tag, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()).mark;
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = `@${n.tag}`;
       item.description = String(notes.filter(note => matchesTag(note, n.tag, hierarchy())).length);
@@ -105,7 +105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     tagDropQueue = operation;
     await operation;
-  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)')));
+  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()));
   async function tagRows(): Promise<Note[]> {
     const rows: Note[] = [];
     async function visit(nodes: Iterable<TagNode>, parent: string): Promise<void> {

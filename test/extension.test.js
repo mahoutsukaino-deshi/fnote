@@ -208,6 +208,14 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(html, /\.note-icon-\d+\{color:#12AB34\}/);
     assert.match(html, /font-src https:\/\/webview.test/);
     assert.match(html, /media\/codicons\/codicon.css/);
+    settings.set('tagHierarchy', { 状態: ['TODO'] });
+    settings.set('tagStyles', [{ tag: '状態', mark: '$(flag)', markColor: '#AB1234' }, { tag: 'TODO', color: '#FFFFFF' }]);
+    await run('refresh');
+    assert.equal(tagRows.find(row => row.id === 'TODO').label, '$(flag) TODO');
+    assert.equal(tagRows.find(row => row.id === 'TODO').appearance.color, '#AB1234');
+    assert.equal(noteRows.find(row => row.id === '音楽').collapsedAppearance.mark, '$(flag)');
+    assert.match(html, /class="codicon codicon-flag note-icon-\d+"/);
+    settings.delete('tagHierarchy');
     settings.set('defaultTagMark', '🏷️');
 
     settings.delete('tagStyles');

@@ -190,10 +190,20 @@ export function automaticTagColor(tag: string): string {
   // 64 hues × 4 saturation levels × 4 lightness levels; no black/white.
   return `hsl(${(index % 64) * 360 / 64}, ${55 + (index >>> 6 & 3) * 8}%, ${42 + (index >>> 8 & 3) * 6}%)`;
 }
-export function tagAppearance(tag: string, styles: TagStyles, defaultMark = '$(circle-filled-compact)'): { mark: string; color: string } {
-  const style = styleFor(tag, styles);
+// Icon inheritance is independent of text-color definitions on child tags.
+function markSource(tag: string, definitions: Map<string, TagStyle>, parents: Map<string, string>): string {
+  let root = tag;
+  for (let key = tag; key; key = parents.get(key) ?? naturalTagParent(key)) {
+    root = key;
+    if (definitions.get(key)?.mark?.trim()) return key;
+  }
+  return root;
+}
+export function tagAppearance(tag: string, styles: TagStyles, defaultMark = '$(circle-filled-compact)', hierarchy: TagHierarchy = {}): { mark: string; color: string } {
   const definitions = new Map(styleEntries(styles).reverse());
-  return { mark: style.mark?.trim() || defaultMark, color: style.markColor || style.color || automaticTagColor(styleKeyFor(tag, definitions) ?? tag) };
+  const key = markSource(tag, definitions, hierarchyParents(hierarchy));
+  const style = definitions.get(key) ?? {};
+  return { mark: style.mark?.trim() || defaultMark, color: style.markColor || style.color || automaticTagColor(key) };
 }
 export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️', hierarchy: TagHierarchy = {}): string {
   return noteAppearance(tags, styles, untaggedMark, defaultTagMark, hierarchy).mark;
@@ -213,7 +223,7 @@ export function noteAppearance(tags: readonly TagMatch[], styles: TagStyles, unt
   };
   const eligible = regularTags.filter(tag => !excluded(tag.tag));
   if (eligible.length === 0) return { mark: untaggedMark };
-  const applicable = new Set(eligible.map(tag => styleKeyFor(tag.tag, definitions)));
+  const applicable = new Set(eligible.map(tag => markSource(tag.tag, definitions, parents)));
   const visited = new Set<string>();
   for (const [key, style] of entries) {
     if (visited.has(key)) continue;
@@ -222,7 +232,7 @@ export function noteAppearance(tags: readonly TagMatch[], styles: TagStyles, unt
     if (mark && applicable.has(key)) return { mark, color: style.markColor || style.color || automaticTagColor(key) };
   }
   const tag = eligible[0].tag;
-  return tagAppearance(tag, styles, defaultTagMark);
+  return tagAppearance(tag, styles, defaultTagMark, hierarchy);
 }
 export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);

@@ -353,6 +353,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     panel.title = `fnote: ${title}`; renderResults(); panel.reveal();
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
+  command('closeAllNotes', async () => {
+    const noteUris = new Set(notes.map(note => file(note.id).toString()));
+    const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs)
+      .filter(tab => tab.input instanceof vscode.TabInputText && noteUris.has(tab.input.uri.toString()));
+    if (tabs.length) await vscode.window.tabGroups.close(tabs, true);
+  });
   command('expandNotes', () => tree.expandAll());
   command('expandTags', () => tags.expandAll());
   command('collapseNotes', () => tree.collapseAll());

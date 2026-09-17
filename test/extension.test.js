@@ -16,10 +16,13 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
   let html = '', panelCount = 0, receiveMessage, shown;
   const documents = [];
   const editorStyles = [];
+  const closeCalls = [];
+  let closeResult = true;
   const settings = new Map();
   const api = {
     Uri: { file: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
     FileType: { File: 1, Directory: 2 }, TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 }, ViewColumn: { Active: -1 },
+    TabInputText: class { constructor(uri) { this.uri = uri; } },
     Range: class { constructor(start, end) { Object.assign(this, { start, end }); } },
     TreeItem: class { constructor(label, collapsibleState) { Object.assign(this, { label, collapsibleState }); } },
     EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
@@ -40,6 +43,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       onDidChangeTextDocument: disposable, onDidCloseTextDocument: disposable, onDidChangeConfiguration: disposable
     },
     window: {
+      tabGroups: { all: [], close: async (tabs, preserveFocus) => { closeCalls.push({ tabs, preserveFocus }); return closeResult; } },
       registerWebviewViewProvider: (id, provider) => { views.set(id, { treeDataProvider: provider.data, webviewProvider: provider }); return disposable(); },
       createTextEditorDecorationType: options => ({ ...disposable(), options }),
       visibleTextEditors: [], createTreeView: (id, options) => { const view = { ...disposable(), ...options, selection: [], reveal: async () => {} }; views.set(id, view); return view; },
@@ -72,6 +76,22 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run('refresh');
     let child = provider.getChildren(parent)[0];
     assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
+    const noteTab = { input: new api.TabInputText(uri(path.join(temp, '.fnote/音楽/index.md'))) };
+    const childTab = { input: new api.TabInputText(uri(path.join(temp, '.fnote/音楽/曲/index.md'))), isDirty: true };
+    const duplicateTab = { input: new api.TabInputText(noteTab.input.uri) };
+    const unrelatedTab = { input: new api.TabInputText(uri(path.join(temp, 'index.md'))) };
+    const resultTab = { input: { viewType: 'fnote.results' } };
+    api.window.tabGroups.all = [{ tabs: [noteTab, unrelatedTab] }, { tabs: [childTab, duplicateTab, resultTab] }];
+    await run('closeAllNotes');
+    assert.deepEqual(closeCalls[0], { tabs: [noteTab, childTab, duplicateTab], preserveFocus: true });
+    closeResult = false;
+    await run('closeAllNotes');
+    assert.equal(closeCalls.length, 2, 'キャンセル時に強制終了や再試行をしない');
+    closeResult = true;
+    api.window.tabGroups.all = [{ tabs: [unrelatedTab, resultTab] }];
+    await run('closeAllNotes');
+    assert.equal(closeCalls.length, 2, '対象がなければ何もしない');
+    api.window.tabGroups.all = [];
     settings.set('tagStyles', { TODO: { mark: '🔴' } });
     assert.equal(provider.getTreeItem(child).label, '🔴 曲');
     settings.set('tagStyles', { '2026/09': { mark: '📅' }, TODO: { mark: '🔴' } });

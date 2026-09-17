@@ -107,6 +107,11 @@
         "title": "fnote: タグ一覧をすべて展開",
         "icon": "$(expand-all)",
         "enablement": "fnote.tagsAllCollapsed && fnote.tagsHasBranches"
+      },
+      {
+        "command": "fnote.closeAllNotes",
+        "title": "fnote: 開いているノートをすべて閉じる",
+        "icon": "$(close-all)"
       }
     ],
     "menus": {
@@ -145,6 +150,11 @@
           "command": "fnote.expandTags",
           "when": "view == fnote.tags && fnote.tagsAllCollapsed",
           "group": "navigation@3"
+        },
+        {
+          "command": "fnote.closeAllNotes",
+          "when": "view == fnote.notes",
+          "group": "navigation@4"
         }
       ]
     },

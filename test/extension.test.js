@@ -111,6 +111,15 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await tagMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true });
     assert.equal(contexts.get('fnote.tagsAllCollapsed'), true);
     assert.match(tagHtml, /data-tags="true"/);
+    settings.set('tagStyles', [{ tag: 'date', mark: '$(calendar)', markColor: '#ABCDEF' }]);
+    await run('refresh');
+    for (const id of ['2026', '2026/09', '2026/09/01']) {
+      const row = tagRows.find(row => row.id === id);
+      assert.ok(row.label.startsWith('$(calendar) '));
+      assert.deepEqual(row.appearance, { mark: '$(calendar)', color: '#ABCDEF' });
+    }
+    settings.delete('tagStyles');
+    await run('refresh');
     assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
     for (const mark of [undefined, '', '   ']) {
       settings.set('tagStyles', [{ tag: 'TODO', mark }]);

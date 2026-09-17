@@ -172,10 +172,11 @@ function styleEntries(styles: TagStyles): [string, TagStyle][] {
   if (Array.isArray(styles)) return styles.map(style => [style.tag, style]);
   return Object.entries(styles);
 }
+const isDateTagLevel = (tag: string): boolean => /^\d{4}(?:\/\d{2}){0,2}$/.test(tag);
 function styleKeyFor(tag: string, styles: Map<string, TagStyle>): string | undefined {
   const parts = tag.split('/');
   while (parts.length) { const key = parts.join('/'); if (styles.has(key)) return key; parts.pop(); }
-  return undefined;
+  return isDateTagLevel(tag) && styles.has('date') ? 'date' : undefined;
 }
 export function styleFor(tag: string, styles: TagStyles): TagStyle {
   const definitions = new Map(styleEntries(styles).reverse());
@@ -197,7 +198,7 @@ function markSource(tag: string, definitions: Map<string, TagStyle>, parents: Ma
     root = key;
     if (definitions.get(key)?.mark?.trim()) return key;
   }
-  return root;
+  return isDateTagLevel(tag) && definitions.has('date') ? 'date' : root;
 }
 export function tagAppearance(tag: string, styles: TagStyles, defaultMark = '$(circle-filled-compact)', hierarchy: TagHierarchy = {}): { mark: string; color: string } {
   const definitions = new Map(styleEntries(styles).reverse());

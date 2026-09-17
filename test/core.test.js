@@ -365,3 +365,23 @@ test('階層タグは親のアイコンと色を継承し、子のアイコン�
   assert.deepEqual(tagAppearance('rav4', {}, undefined, hierarchy), tagAppearance('車', {}, undefined, hierarchy));
   assert.equal(noteAppearance(parseTags('@rav4'), [{ ...styles[0], excludeFromNoteMark: true }], '🗒️', undefined, hierarchy).mark, '🗒️');
 });
+
+
+test('date設定で年に依存せず年・月・日の日付タグに共通アイコンを使う', () => {
+  const { tagAppearance } = require('../dist/core');
+  const date = { mark: '$(calendar)', markColor: '#123456', color: '#abcdef' };
+  for (const styles of [{ date }, [{ tag: 'date', ...date }]]) {
+    for (const tag of ['2025', '2026/09', '2027/01/01', '2030']) {
+      assert.deepEqual(tagAppearance(tag, styles), { mark: '$(calendar)', color: '#123456' });
+      assert.equal(styleFor(tag, styles).color, '#abcdef');
+    }
+    assert.equal(tagAppearance('TODO', styles).mark, '$(circle-filled-compact)');
+    assert.equal(tagAppearance('2026/topic', styles).mark, '$(circle-filled-compact)');
+    assert.equal(noteMark(parseTags('@2027/01/01'), styles, '🗒️'), '🗒️');
+  }
+  const styles = { date, '2026': { mark: '📅' }, '2026/09': { mark: '⭐' } };
+  assert.equal(tagAppearance('2026/08/01', styles).mark, '📅');
+  assert.equal(tagAppearance('2026/09/01', styles).mark, '⭐');
+  assert.equal(tagAppearance('2027', styles).mark, '$(calendar)');
+  assert.equal(tagAppearance('2026', { '2026': { mark: '📅' } }).mark, '📅');
+});

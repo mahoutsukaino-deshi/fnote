@@ -267,7 +267,7 @@
             },
             "additionalProperties": false
           },
-          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、markColor、color、backgroundColor、excludeFromNoteMarkを指定。親タグの設定は子タグにも適用。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
+          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、markColor、color、backgroundColor、excludeFromNoteMarkを指定。親タグの設定は子タグにも適用。tagをdateにすると日付タグの年・月・日共通の既定設定になります（年別の個別設定が優先）。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
         },
         "fnote.tagBackgroundColor": {
           "type": "string",

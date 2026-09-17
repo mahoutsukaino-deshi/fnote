@@ -169,8 +169,8 @@
         },
         "fnote.untaggedNoteMark": {
           "type": "string",
-          "default": "🗒️",
-          "description": "通常タグがないノート（日付・時刻タグのみの場合を含む）に表示する印。文字・絵文字を指定できます。空文字で非表示になります。"
+          "default": "$(note)",
+          "description": "印の候補となるタグがないノートに表示する印。$(note) などのCodicon名、文字・絵文字を指定できます。空文字で非表示になります。"
         },
         "fnote.defaultTagMark": {
           "type": "string",

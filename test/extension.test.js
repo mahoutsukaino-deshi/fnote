@@ -64,7 +64,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const provider = views.get('fnote.notes').treeDataProvider;
     inputs.push('音楽'); await run('add');
     const parent = provider.getChildren()[0];
-    assert.equal(provider.getTreeItem(parent).label, '🗒️ 音楽');
+    assert.equal(provider.getTreeItem(parent).label, '$(note) 音楽');
     settings.set('untaggedNoteMark', '📝');
     assert.equal(provider.getTreeItem(parent).label, '📝 音楽');
     settings.set('untaggedNoteMark', '');

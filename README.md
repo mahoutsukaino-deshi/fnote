@@ -112,7 +112,7 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
 | 設定 | 既定値 | 用途 |
 | --- | --- | --- |
 | `fnote.storagePath` | `"~/.fnote"` | 共通の保存先 |
-| `fnote.untaggedNoteMark` | `"🗒️"` | 通常タグがないノートの印 |
+| `fnote.untaggedNoteMark` | `"$(note)"` | 通常タグがないノートの印 |
 | `fnote.defaultTagMark` | `"$(circle-filled-compact)"` | タグ一覧で印が未設定・空の場合の印 |
 | `fnote.tagColor` | `"#00BFFF"` | タグの既定文字色 |
 | `fnote.tagBackgroundColor` | `""` | タグの既定背景色（空文字は背景なし） |
@@ -133,7 +133,7 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
 ```json
 {
   "fnote.storagePath": "~/.fnote",
-  "fnote.untaggedNoteMark": "🗒️",
+  "fnote.untaggedNoteMark": "$(note)",
   "fnote.defaultTagMark": "$(circle-filled-compact)",
   "fnote.tagColor": "#00BFFF",
   "fnote.tagBackgroundColor": "",

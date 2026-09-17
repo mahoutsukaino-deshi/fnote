@@ -1,11 +1,12 @@
 name: CI
+run-name: CI [${{ (github.event_name == 'pull_request' && github.base_ref) || (true && github.ref) }}]
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
+
   pull_request:
-    types: [opened, synchronize, reopened, closed]
-  workflow_dispatch:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -26,7 +27,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - run: npm ci --include=dev
       - run: npm run check

@@ -86,3 +86,17 @@ for (const tagMode of [false, true]) test(`${tagMode ? 'タグ' : 'ノート'}�
   message({ type: 'notes', rows: [{ id: 'single', parent: '', label: '末端のみ' }] });
   assert.equal(state().hasBranches, false);
 });
+
+
+test('Codiconを文字列として表示せず色付きのアイコン要素にし、絵文字は保持する', () => {
+  const { tree, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'icon', parent: '', label: '$(book) 資料', appearance: { mark: '$(book)', color: '#123456' } },
+    { id: 'emoji', parent: '', label: '✅ 完了', appearance: { mark: '✅' } }
+  ] });
+  const icon = tree.children[0];
+  assert.equal(icon.children[1].className, 'note-icon codicon codicon-book');
+  assert.equal(icon.children[1].style.color, '#123456');
+  assert.equal(icon.children[2].textContent, '資料');
+  assert.equal(tree.children[1].children[1].textContent, '✅ 完了');
+});

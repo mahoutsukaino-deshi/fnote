@@ -4,7 +4,7 @@ export interface Note extends TaggedNote { parent: string; name: string; text: s
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }
 export interface HeadingMatch { title: string; start: number; matched: boolean; lines: ContentMatch[]; children: HeadingMatch[] }
-export interface TagStyle { excludeFromNoteMark?: boolean; mark?: string; color?: string; backgroundColor?: string }
+export interface TagStyle { excludeFromNoteMark?: boolean; mark?: string; markColor?: string; color?: string; backgroundColor?: string }
 export interface TagStyleDefinition extends TagStyle { tag: string }
 export type TagStyles = Record<string, TagStyle> | readonly TagStyleDefinition[];
 export interface TagNode { label: string; tag: string; children: Map<string, TagNode> }
@@ -172,10 +172,11 @@ function styleEntries(styles: TagStyles): [string, TagStyle][] {
   if (Array.isArray(styles)) return styles.map(style => [style.tag, style]);
   return Object.entries(styles);
 }
+const isDateTagLevel = (tag: string): boolean => /^\d{4}(?:\/\d{2}){0,2}$/.test(tag);
 function styleKeyFor(tag: string, styles: Map<string, TagStyle>): string | undefined {
   const parts = tag.split('/');
   while (parts.length) { const key = parts.join('/'); if (styles.has(key)) return key; parts.pop(); }
-  return undefined;
+  return isDateTagLevel(tag) && styles.has('date') ? 'date' : undefined;
 }
 export function styleFor(tag: string, styles: TagStyles): TagStyle {
   const definitions = new Map(styleEntries(styles).reverse());
@@ -183,7 +184,33 @@ export function styleFor(tag: string, styles: TagStyles): TagStyle {
   return key === undefined ? {} : definitions.get(key)!;
 }
 
+export function automaticTagColor(tag: string): string {
+  let hash = 2166136261;
+  for (const char of tag) hash = Math.imul(hash ^ char.codePointAt(0)!, 16777619);
+  const index = hash >>> 0 & 1023;
+  // 64 hues × 4 saturation levels × 4 lightness levels; no black/white.
+  return `hsl(${(index % 64) * 360 / 64}, ${55 + (index >>> 6 & 3) * 8}%, ${42 + (index >>> 8 & 3) * 6}%)`;
+}
+// Icon inheritance is independent of text-color definitions on child tags.
+function markSource(tag: string, definitions: Map<string, TagStyle>, parents: Map<string, string>): string {
+  let root = tag;
+  for (let key = tag; key; key = parents.get(key) ?? naturalTagParent(key)) {
+    root = key;
+    if (definitions.get(key)?.mark?.trim()) return key;
+  }
+  return isDateTagLevel(tag) && definitions.has('date') ? 'date' : root;
+}
+export function tagAppearance(tag: string, styles: TagStyles, defaultMark = '$(circle-filled-compact)', hierarchy: TagHierarchy = {}): { mark: string; color: string } {
+  const definitions = new Map(styleEntries(styles).reverse());
+  const key = markSource(tag, definitions, hierarchyParents(hierarchy));
+  const style = definitions.get(key) ?? {};
+  return { mark: style.mark?.trim() || defaultMark, color: style.markColor || style.color || automaticTagColor(key) };
+}
 export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️', hierarchy: TagHierarchy = {}): string {
+  return noteAppearance(tags, styles, untaggedMark, defaultTagMark, hierarchy).mark;
+}
+
+export function noteAppearance(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '$(circle-filled-compact)', hierarchy: TagHierarchy = {}): { mark: string; color?: string } {
   const regularTags = tags.filter(tag => !isDateTag(tag.tag) && !isTimeTag(tag.tag));
   const entries = styleEntries(styles);
   const definitions = new Map([...entries].reverse());
@@ -195,18 +222,18 @@ export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedM
     }
     return false;
   };
-  const eligible = regularTags.filter(tag => !excluded(tag.tag))
-    .map(tag => styleKeyFor(tag.tag, definitions));
-  if (eligible.length === 0) return untaggedMark;
-  const applicable = new Set(eligible);
+  const eligible = regularTags.filter(tag => !excluded(tag.tag));
+  if (eligible.length === 0) return { mark: untaggedMark };
+  const applicable = new Set(eligible.map(tag => markSource(tag.tag, definitions, parents)));
   const visited = new Set<string>();
   for (const [key, style] of entries) {
     if (visited.has(key)) continue;
     visited.add(key);
     const mark = style.mark?.trim();
-    if (mark && applicable.has(key)) return mark;
+    if (mark && applicable.has(key)) return { mark, color: style.markColor || style.color || automaticTagColor(key) };
   }
-  return defaultTagMark;
+  const tag = eligible[0].tag;
+  return tagAppearance(tag, styles, defaultTagMark, hierarchy);
 }
 export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);

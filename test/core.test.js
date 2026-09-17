@@ -322,3 +322,66 @@ test('除外属性は設定したタグ階層を継承し、子の色・印だ�
     assert.equal(styleFor('資料', definitions).mark, '📚');
   }
 });
+
+
+test('Codiconsの既定アイコンとタグ名から生成する1024色のHSLパレット', () => {
+  const { automaticTagColor, tagAppearance, noteAppearance } = require('../dist/core');
+  const first = tagAppearance('未設定', {});
+  assert.equal(first.mark, '$(circle-filled-compact)');
+  assert.equal(first.color, automaticTagColor('未設定'));
+  assert.equal(first.color, tagAppearance('未設定', {}).color);
+  const colors = new Set(Array.from({ length: 20000 }, (_, i) => automaticTagColor(`tag${i}`)));
+  assert.equal(colors.size, 1024);
+  for (const color of colors) {
+    const [, hue, saturation, lightness] = /^hsl\(([\d.]+), (\d+)%, (\d+)%\)$/.exec(color);
+    assert.ok(+hue >= 0 && +hue < 360);
+    assert.ok(+saturation >= 55 && +saturation <= 79);
+    assert.ok(+lightness >= 42 && +lightness <= 60);
+  }
+  const styles = [{ tag: 'TODO', mark: '$(check)', color: '#112233', markColor: '#445566' }];
+  assert.deepEqual(tagAppearance('TODO/子', styles), { mark: '$(check)', color: '#445566' });
+  assert.equal(tagAppearance('色のみ', { 色のみ: { color: '#123456' } }).color, '#123456');
+  assert.equal(tagAppearance('絵文字', { 絵文字: { mark: '✅' } }).mark, '✅');
+  assert.equal(tagAppearance('無印', {}, '').mark, '');
+  assert.equal(noteAppearance(parseTags('@未設定'), {}, '🗒️').mark, first.mark);
+  assert.equal(noteAppearance(parseTags('@TODO'), styles, '').color, '#445566');
+  assert.equal(noteAppearance(parseTags('@参考 @TODO'), [{ tag: '参考', mark: '$(book)', excludeFromNoteMark: true }, ...styles], '').mark, '$(check)');
+});
+
+
+test('階層タグは親のアイコンと色を継承し、子のアイコン指定だけを優先する', () => {
+  const { tagAppearance, noteAppearance } = require('../dist/core');
+  const hierarchy = { 車: ['toyota'], toyota: ['rav4'] };
+  const styles = [{ tag: '車', mark: '$(symbol-color)', markColor: '#123456' }, { tag: 'toyota', color: '#ffffff' }];
+  const parent = tagAppearance('車', styles, undefined, hierarchy);
+  assert.deepEqual(tagAppearance('toyota', styles, undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('rav4', styles, undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('rav4/詳細', styles, undefined, hierarchy), parent);
+  assert.deepEqual(noteAppearance(parseTags('@rav4'), styles, '', undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance('車/分類/子', styles), parent);
+  const override = [...styles, { tag: 'rav4', mark: '🚗', markColor: '#abcdef' }];
+  assert.deepEqual(tagAppearance('rav4', override, undefined, hierarchy), { mark: '🚗', color: '#abcdef' });
+  assert.equal(noteAppearance(parseTags('@rav4'), override, '', undefined, hierarchy).mark, '🚗');
+  assert.deepEqual(tagAppearance('rav4', {}, undefined, hierarchy), tagAppearance('車', {}, undefined, hierarchy));
+  assert.equal(noteAppearance(parseTags('@rav4'), [{ ...styles[0], excludeFromNoteMark: true }], '🗒️', undefined, hierarchy).mark, '🗒️');
+});
+
+
+test('date設定で年に依存せず年・月・日の日付タグに共通アイコンを使う', () => {
+  const { tagAppearance } = require('../dist/core');
+  const date = { mark: '$(calendar)', markColor: '#123456', color: '#abcdef' };
+  for (const styles of [{ date }, [{ tag: 'date', ...date }]]) {
+    for (const tag of ['2025', '2026/09', '2027/01/01', '2030']) {
+      assert.deepEqual(tagAppearance(tag, styles), { mark: '$(calendar)', color: '#123456' });
+      assert.equal(styleFor(tag, styles).color, '#abcdef');
+    }
+    assert.equal(tagAppearance('TODO', styles).mark, '$(circle-filled-compact)');
+    assert.equal(tagAppearance('2026/topic', styles).mark, '$(circle-filled-compact)');
+    assert.equal(noteMark(parseTags('@2027/01/01'), styles, '🗒️'), '🗒️');
+  }
+  const styles = { date, '2026': { mark: '📅' }, '2026/09': { mark: '⭐' } };
+  assert.equal(tagAppearance('2026/08/01', styles).mark, '📅');
+  assert.equal(tagAppearance('2026/09/01', styles).mark, '⭐');
+  assert.equal(tagAppearance('2027', styles).mark, '$(calendar)');
+  assert.equal(tagAppearance('2026', { '2026': { mark: '📅' } }).mark, '📅');
+});

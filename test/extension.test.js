@@ -16,10 +16,13 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
   let html = '', panelCount = 0, receiveMessage, shown;
   const documents = [];
   const editorStyles = [];
-  const settings = new Map();
+  const closeCalls = [];
+  let closeResult = true;
+  const settings = new Map([['defaultTagMark', '🏷️']]);
   const api = {
     Uri: { file: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
     FileType: { File: 1, Directory: 2 }, TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 }, ViewColumn: { Active: -1 },
+    TabInputText: class { constructor(uri) { this.uri = uri; } },
     Range: class { constructor(start, end) { Object.assign(this, { start, end }); } },
     TreeItem: class { constructor(label, collapsibleState) { Object.assign(this, { label, collapsibleState }); } },
     EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
@@ -40,13 +43,14 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       onDidChangeTextDocument: disposable, onDidCloseTextDocument: disposable, onDidChangeConfiguration: disposable
     },
     window: {
+      tabGroups: { all: [], close: async (tabs, preserveFocus) => { closeCalls.push({ tabs, preserveFocus }); return closeResult; } },
       registerWebviewViewProvider: (id, provider) => { views.set(id, { treeDataProvider: provider.data, webviewProvider: provider }); return disposable(); },
       createTextEditorDecorationType: options => ({ ...disposable(), options }),
       visibleTextEditors: [], createTreeView: (id, options) => { const view = { ...disposable(), ...options, selection: [], reveal: async () => {} }; views.set(id, view); return view; },
       showInputBox: async () => inputs.shift(), showQuickPick: async () => picks.shift(), showWarningMessage: async () => '削除',
       showErrorMessage: message => errors.push(message), showTextDocument: async (doc, options) => { shown = { doc, options }; },
       onDidChangeVisibleTextEditors: disposable, onDidChangeActiveTextEditor: disposable,
-      createWebviewPanel: () => { panelCount++; return { ...disposable(), reveal() {}, onDidDispose: disposable, webview: { set html(value) { html = value; }, onDidReceiveMessage: handler => { receiveMessage = handler; return disposable(); } } }; }
+      createWebviewPanel: () => { panelCount++; return { ...disposable(), reveal() {}, onDidDispose: disposable, webview: { asWebviewUri: value => value.toString(), cspSource: "https://webview.test", set html(value) { html = value; }, onDidReceiveMessage: handler => { receiveMessage = handler; return disposable(); } } }; }
     }
   };
   const original = Module._load;
@@ -60,7 +64,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const provider = views.get('fnote.notes').treeDataProvider;
     inputs.push('音楽'); await run('add');
     const parent = provider.getChildren()[0];
-    assert.equal(provider.getTreeItem(parent).label, '🗒️ 音楽');
+    assert.equal(provider.getTreeItem(parent).label, '$(note) 音楽');
     settings.set('untaggedNoteMark', '📝');
     assert.equal(provider.getTreeItem(parent).label, '📝 音楽');
     settings.set('untaggedNoteMark', '');
@@ -72,6 +76,22 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run('refresh');
     let child = provider.getChildren(parent)[0];
     assert.equal(provider.getTreeItem(child).label, '🏷️ 曲');
+    const noteTab = { input: new api.TabInputText(uri(path.join(temp, '.fnote/音楽/index.md'))) };
+    const childTab = { input: new api.TabInputText(uri(path.join(temp, '.fnote/音楽/曲/index.md'))), isDirty: true };
+    const duplicateTab = { input: new api.TabInputText(noteTab.input.uri) };
+    const unrelatedTab = { input: new api.TabInputText(uri(path.join(temp, 'index.md'))) };
+    const resultTab = { input: { viewType: 'fnote.results' } };
+    api.window.tabGroups.all = [{ tabs: [noteTab, unrelatedTab] }, { tabs: [childTab, duplicateTab, resultTab] }];
+    await run('closeAllNotes');
+    assert.deepEqual(closeCalls[0], { tabs: [noteTab, childTab, duplicateTab], preserveFocus: true });
+    closeResult = false;
+    await run('closeAllNotes');
+    assert.equal(closeCalls.length, 2, 'キャンセル時に強制終了や再試行をしない');
+    closeResult = true;
+    api.window.tabGroups.all = [{ tabs: [unrelatedTab, resultTab] }];
+    await run('closeAllNotes');
+    assert.equal(closeCalls.length, 2, '対象がなければ何もしない');
+    api.window.tabGroups.all = [];
     settings.set('tagStyles', { TODO: { mark: '🔴' } });
     assert.equal(provider.getTreeItem(child).label, '🔴 曲');
     settings.set('tagStyles', { '2026/09': { mark: '📅' }, TODO: { mark: '🔴' } });
@@ -91,6 +111,15 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await tagMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true });
     assert.equal(contexts.get('fnote.tagsAllCollapsed'), true);
     assert.match(tagHtml, /data-tags="true"/);
+    settings.set('tagStyles', [{ tag: 'date', mark: '$(calendar)', markColor: '#ABCDEF' }]);
+    await run('refresh');
+    for (const id of ['2026', '2026/09', '2026/09/01']) {
+      const row = tagRows.find(row => row.id === id);
+      assert.ok(row.label.startsWith('$(calendar) '));
+      assert.deepEqual(row.appearance, { mark: '$(calendar)', color: '#ABCDEF' });
+    }
+    settings.delete('tagStyles');
+    await run('refresh');
     assert.equal(tagRows.find(row => row.id === 'TODO').label, '🏷️ TODO');
     for (const mark of [undefined, '', '   ']) {
       settings.set('tagStyles', [{ tag: 'TODO', mark }]);
@@ -174,6 +203,30 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     settings.set('tagStyles', [{ tag: 'DONE', mark: '🟢' }, { tag: 'TODO', mark: '🔴' }]);
     await run('refresh');
     assert.equal(noteRows.find(row => row.id === '音楽').collapsedLabel, '🟢 音楽');
+    settings.set('tagStyles', [{ tag: 'TODO', mark: '$(check)', markColor: '#12AB34' }]);
+    settings.delete('defaultTagMark');
+    await run('refresh');
+    assert.equal(tagRows.find(row => row.id === 'TODO').appearance.mark, '$(check)');
+    assert.equal(tagRows.find(row => row.id === 'TODO').appearance.color, '#12AB34');
+    assert.equal(noteRows.find(row => row.id === '音楽').collapsedAppearance.mark, '$(check)');
+    assert.equal(noteRows.find(row => row.id === '音楽').collapsedAppearance.color, '#12AB34');
+    assert.equal(noteRows.find(row => row.id === '音楽').appearance.mark, '$(circle-filled-compact)');
+    assert.match(noteRows.find(row => row.id === '音楽').appearance.color, /^hsl\(/);
+    await run('filter', 'TODO');
+    assert.match(html, /class="codicon codicon-check note-icon-\d+"/);
+    assert.match(html, /\.note-icon-\d+\{color:#12AB34\}/);
+    assert.match(html, /font-src https:\/\/webview.test/);
+    assert.match(html, /media\/codicons\/codicon.css/);
+    settings.set('tagHierarchy', { 状態: ['TODO'] });
+    settings.set('tagStyles', [{ tag: '状態', mark: '$(flag)', markColor: '#AB1234' }, { tag: 'TODO', color: '#FFFFFF' }]);
+    await run('refresh');
+    assert.equal(tagRows.find(row => row.id === 'TODO').label, '$(flag) TODO');
+    assert.equal(tagRows.find(row => row.id === 'TODO').appearance.color, '#AB1234');
+    assert.equal(noteRows.find(row => row.id === '音楽').collapsedAppearance.mark, '$(flag)');
+    assert.match(html, /class="codicon codicon-flag note-icon-\d+"/);
+    settings.delete('tagHierarchy');
+    settings.set('defaultTagMark', '🏷️');
+
     settings.delete('tagStyles');
     await fs.writeFile(path.join(temp, '.fnote/音楽/index.md'), '# 音楽\n\n');
     inputs.push('A'); await run('add'); inputs.push('B'); await run('add');

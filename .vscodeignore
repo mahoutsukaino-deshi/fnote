@@ -5,3 +5,5 @@
 !dist/extension.js
 !dist/notesView.js
 !media/notes.js
+
+!media/codicons/**

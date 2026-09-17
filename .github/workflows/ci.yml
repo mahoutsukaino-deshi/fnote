@@ -6,7 +6,8 @@ on:
     branches: [main]
 
   pull_request:
-    types: [opened, synchronize, reopened]
+    # Packaging below runs only for a merged PR, so closed must be included.
+    types: [opened, synchronize, reopened, closed]
 
 permissions:
   contents: read

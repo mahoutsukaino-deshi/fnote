@@ -367,7 +367,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const noteUris = new Set(notes.map(note => file(note.id).toString()));
     const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs)
       .filter(tab => tab.input instanceof vscode.TabInputText && noteUris.has(tab.input.uri.toString()));
-    if (tabs.length) await vscode.window.tabGroups.close(tabs, true);
+    if (tabs.length && !await vscode.window.tabGroups.close(tabs, true)) return;
+    panel?.dispose();
   });
   command('expandNotes', () => tree.expandAll());
   command('expandTags', () => tags.expandAll());

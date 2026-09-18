@@ -13,7 +13,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
   const disposable = () => ({ dispose() {} });
   const uri = p => ({ fsPath: p, toString: () => `file://${p}` });
   const fileError = e => { if (e.code === 'ENOENT') e.code = 'FileNotFound'; throw e; };
-  let html = '', panelCount = 0, receiveMessage, shown;
+  let html = '', panelCount = 0, panelDisposeCount = 0, receiveMessage, shown;
   const documents = [];
   const editorStyles = [];
   const closeCalls = [];
@@ -23,6 +23,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     Uri: { file: uri, joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)) },
     FileType: { File: 1, Directory: 2 }, TreeItemCollapsibleState: { None: 0, Collapsed: 1, Expanded: 2 }, ViewColumn: { Active: -1 },
     TabInputText: class { constructor(uri) { this.uri = uri; } },
+    TabInputWebview: class { constructor(viewType) { this.viewType = viewType; } },
     Range: class { constructor(start, end) { Object.assign(this, { start, end }); } },
     TreeItem: class { constructor(label, collapsibleState) { Object.assign(this, { label, collapsibleState }); } },
     EventEmitter: class { event = () => disposable(); fire() {} dispose() {} },
@@ -50,7 +51,7 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
       showInputBox: async () => inputs.shift(), showQuickPick: async () => picks.shift(), showWarningMessage: async () => '削除',
       showErrorMessage: message => errors.push(message), showTextDocument: async (doc, options) => { shown = { doc, options }; },
       onDidChangeVisibleTextEditors: disposable, onDidChangeActiveTextEditor: disposable,
-      createWebviewPanel: () => { panelCount++; return { ...disposable(), reveal() {}, onDidDispose: disposable, webview: { asWebviewUri: value => value.toString(), cspSource: "https://webview.test", set html(value) { html = value; }, onDidReceiveMessage: handler => { receiveMessage = handler; return disposable(); } } }; }
+      createWebviewPanel: () => { panelCount++; let onDispose; return { dispose() { panelDisposeCount++; onDispose?.(); }, reveal() {}, onDidDispose: handler => { onDispose = handler; return disposable(); }, webview: { asWebviewUri: value => value.toString(), cspSource: "https://webview.test", set html(value) { html = value; }, onDidReceiveMessage: handler => { receiveMessage = handler; return disposable(); } } }; }
     }
   };
   const original = Module._load;
@@ -80,8 +81,9 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const childTab = { input: new api.TabInputText(uri(path.join(temp, '.fnote/音楽/曲/index.md'))), isDirty: true };
     const duplicateTab = { input: new api.TabInputText(noteTab.input.uri) };
     const unrelatedTab = { input: new api.TabInputText(uri(path.join(temp, 'index.md'))) };
-    const resultTab = { input: { viewType: 'fnote.results' } };
-    api.window.tabGroups.all = [{ tabs: [noteTab, unrelatedTab] }, { tabs: [childTab, duplicateTab, resultTab] }];
+    const resultTab = { input: new api.TabInputWebview('fnote.results') };
+    const unrelatedWebviewTab = { input: new api.TabInputWebview('other.results') };
+    api.window.tabGroups.all = [{ tabs: [noteTab, unrelatedTab, unrelatedWebviewTab] }, { tabs: [childTab, duplicateTab, resultTab] }];
     await run('closeAllNotes');
     assert.deepEqual(closeCalls[0], { tabs: [noteTab, childTab, duplicateTab], preserveFocus: true });
     closeResult = false;
@@ -89,6 +91,9 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(closeCalls.length, 2, 'キャンセル時に強制終了や再試行をしない');
     closeResult = true;
     api.window.tabGroups.all = [{ tabs: [unrelatedTab, resultTab] }];
+    await run('closeAllNotes');
+    assert.equal(closeCalls.length, 2);
+    api.window.tabGroups.all = [{ tabs: [unrelatedTab, unrelatedWebviewTab] }];
     await run('closeAllNotes');
     assert.equal(closeCalls.length, 2, '対象がなければ何もしない');
     api.window.tabGroups.all = [];
@@ -382,6 +387,26 @@ test('拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(await fs.readFile(path.join(temp, '.fnote/新しい曲/index.md'), 'utf8'), /@TODO/);
     await run('delete', renamed); assert.equal(provider.getChildren().length, 1);
     assert.equal(errors.length, 0);
+    // Closing all notes also disposes tag/search results and allows reopening them.
+    const panelsBeforeClose = panelCount;
+    api.window.tabGroups.all = [{ tabs: [noteTab, unrelatedTab, unrelatedWebviewTab] }];
+    closeResult = false;
+    await run('closeAllNotes');
+    assert.equal(panelDisposeCount, 0, '本文を閉じる操作のキャンセル時は結果画面も維持する');
+    closeResult = true;
+    await run('closeAllNotes');
+    assert.equal(panelDisposeCount, 1, 'タグ一覧から開いた画面も閉じる');
+    await run('filter', 'TODO');
+    assert.equal(panelCount, panelsBeforeClose + 1, '閉じた後は結果画面を作り直す');
+    inputs.push('音楽'); await run('search');
+    assert.match(html, /検索: 音楽/);
+    api.window.tabGroups.all = [{ tabs: [unrelatedTab, unrelatedWebviewTab] }];
+    const closesBeforeResultsOnly = closeCalls.length;
+    await run('closeAllNotes');
+    assert.equal(panelDisposeCount, 2, '本文タブがなくても検索結果画面を閉じる');
+    assert.equal(closeCalls.length, closesBeforeResultsOnly, '無関係なタブは閉じない');
+    await run('closeAllNotes');
+    assert.equal(panelDisposeCount, 2, '繰り返しても破棄済みの画面には触れない');
     // Opening another workspace still reads the same global notes.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;

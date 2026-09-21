@@ -247,17 +247,17 @@ test("ドロップの前後挿入は兄弟の順序と子ノートを保持す�
     planNoteDrop(notes, "A/子", undefined, "inside").destination,
     "子",
   );
-  assert.throws(() => planNoteDrop(notes, "A", "A/子", "after"), /子ノート/);
-  assert.throws(() => planNoteDrop(notes, "A", "A", "before"), /自分自身/);
+  assert.throws(() => planNoteDrop(notes, "A", "A/子", "after"), /descendants/);
+  assert.throws(() => planNoteDrop(notes, "A", "A", "before"), /itself/);
   assert.throws(
     () => planNoteDrop(notes, "A", "missing", "before"),
-    /見つかりません/,
+    /not found/,
   );
   const duplicate = [
     ...notes,
     { id: "B/子", name: "子", parent: "B", text: "", tags: [] },
   ];
-  assert.throws(() => planNoteDrop(duplicate, "A/子", "B", "inside"), /同名/);
+  assert.throws(() => planNoteDrop(duplicate, "A/子", "B", "inside"), /same name/);
 });
 
 test("時刻範囲のタグ全体を認識し、同じ行の複数の時間帯に対応する", () => {

@@ -191,17 +191,19 @@
           ],
           "default": [
             {
+              "tag": "FIX",
+              "mark": "$(bug)",
+              "color": "#f87171"
+            },
+            {
               "tag": "TODO",
-              "mark": "🔴",
-              "color": "#00BFFF"
+              "mark": "$(circle-filled-compact)",
+              "color": "#f87171"
             },
             {
-              "tag": "バラード",
-              "mark": "🔵"
-            },
-            {
-              "tag": "ロック",
-              "mark": "🟡"
+              "tag": "date",
+              "mark": "$(calendar)",
+              "excludeFromNoteMark": true
             }
           ],
           "items": {

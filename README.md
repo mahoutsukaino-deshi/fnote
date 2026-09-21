@@ -37,16 +37,16 @@ VS Code 1.85以上が必要です。現在のバージョンは `0.1.0` です�
 
 ノート一覧では次のキー操作が使えます。開いているノートに合わせて一覧の選択位置も更新されます。
 
-| キー | 操作 |
-| --- | --- |
-| ↑ / ↓ | 選択を移動 |
-| Home / End | 表示中の先頭・末尾を選択 |
-| ← | 子ノートを折りたたむ、または親を選択 |
-| → | 子ノートを展開 |
-| Enter / Space | 選択したノートを開く |
-| F2 | 名前を変更 |
-| Delete | 削除（確認あり） |
-| Shift+F10 | 操作メニューを表示 |
+| キー          | 操作                                 |
+| ------------- | ------------------------------------ |
+| ↑ / ↓         | 選択を移動                           |
+| Home / End    | 表示中の先頭・末尾を選択             |
+| ←             | 子ノートを折りたたむ、または親を選択 |
+| →             | 子ノートを展開                       |
+| Enter / Space | 選択したノートを開く                 |
+| F2            | 名前を変更                           |
+| Delete        | 削除（確認あり）                     |
+| Shift+F10     | 操作メニューを表示                   |
 
 一覧の更新ボタン、または `fnote: 更新` で保存先を再読み込みできます。ファイルの変更や本文の編集中にも、一覧・タグの色・ノートの印・検索結果が更新されます。
 
@@ -109,14 +109,14 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
 
 ## タグの色と印の設定
 
-| 設定 | 既定値 | 用途 |
-| --- | --- | --- |
-| `fnote.storagePath` | `"~/.fnote"` | 共通の保存先 |
-| `fnote.untaggedNoteMark` | `"$(note)"` | 通常タグがないノートの印 |
-| `fnote.defaultTagMark` | `"$(circle-filled-compact)"` | タグ一覧で印が未設定・空の場合の印 |
-| `fnote.tagColor` | `"#00BFFF"` | タグの既定文字色 |
-| `fnote.tagBackgroundColor` | `""` | タグの既定背景色（空文字は背景なし） |
-| `fnote.tagStyles` | 下記参照 | タグごとの印・文字色・背景色 |
+| 設定                       | 既定値                       | 用途                                 |
+| -------------------------- | ---------------------------- | ------------------------------------ |
+| `fnote.storagePath`        | `"~/.fnote"`                 | 共通の保存先                         |
+| `fnote.untaggedNoteMark`   | `"$(note)"`                  | 通常タグがないノートの印             |
+| `fnote.defaultTagMark`     | `"$(circle-filled-compact)"` | タグ一覧で印が未設定・空の場合の印   |
+| `fnote.tagColor`           | `"#00BFFF"`                  | タグの既定文字色                     |
+| `fnote.tagBackgroundColor` | `""`                         | タグの既定背景色（空文字は背景なし） |
+| `fnote.tagStyles`          | 下記参照                     | タグごとの印・文字色・背景色         |
 
 `fnote.tagStyles` の既定値は次のとおりです。
 
@@ -138,7 +138,12 @@ VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまた
   "fnote.tagColor": "#00BFFF",
   "fnote.tagBackgroundColor": "",
   "fnote.tagStyles": [
-    { "tag": "TODO", "mark": "🔴", "color": "#FF4444", "backgroundColor": "#402020" },
+    {
+      "tag": "TODO",
+      "mark": "🔴",
+      "color": "#FF4444",
+      "backgroundColor": "#402020"
+    },
     { "tag": "FIX", "mark": "🐞", "color": "#FF4444" },
     { "tag": "2026", "mark": "📅" }
   ]
@@ -181,13 +186,13 @@ npm run check
 npm run package
 ```
 
-| コマンド | 内容 |
-| --- | --- |
-| `npm run build` | `src/**/*.ts` をstrictモードで型検査し、`dist/` にJavaScriptとソースマップを生成 |
-| `npm run watch` | TypeScriptの変更を監視してビルド |
-| `npm test` | ビルド後、Node.jsのテストランナーで `test/` のテストを実行 |
-| `npm run check` | TypeScriptの型検査と `media/notes.js` の構文チェック |
-| `npm run package` | ビルド後、`scripts/package.py` で `fnote-0.1.0.vsix` を生成 |
+| コマンド          | 内容                                                                             |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `npm run build`   | `src/**/*.ts` をstrictモードで型検査し、`dist/` にJavaScriptとソースマップを生成 |
+| `npm run watch`   | TypeScriptの変更を監視してビルド                                                 |
+| `npm test`        | ビルド後、Node.jsのテストランナーで `test/` のテストを実行                       |
+| `npm run check`   | TypeScriptの型検査と `media/notes.js` の構文チェック                             |
+| `npm run package` | ビルド後、`scripts/package.py` で `fnote-0.1.0.vsix` を生成                      |
 
 このフォルダーをVS Codeで開き、F5で「fnote 拡張機能を起動」を実行すると、ビルド後に拡張機能開発ホストを起動します。デバッグ起動も通常利用と同じ保存先を使うため、検証用ノートを分ける場合は開発ホストのユーザー設定で保存先を変更し、再読み込みしてください。
 
@@ -203,7 +208,7 @@ VSIXにはコンパイル済みJavaScript、ノート一覧用のスクリプト
 
 ## Marketplaceへの公開・更新
 
-GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再オープン時にチェックとテストまでを実行します。PRがマージされた場合のみ、マージコミットのチェック・テスト成功後にVSIXを作成し、`fnote-vsix` 成果物として保存します。未マージのクローズでは実行せず、手動実行はチェックとテストのみです。バージョンタグによるMarketplace公開は別の公開ワークフローで行います。Publisher IDは `mtfuji` です。初回の認証設定と公開手順は [公開手順](docs/publishing.md) を参照してください。
+GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再オープン時にチェックとテストまでを実行します。PRがマージされた場合のみ、マージコミットのチェック・テスト成功後にVSIXを作成し、`fnote-vsix` 成果物として保存します。未マージのクローズでは実行せず、手動実行はチェックとテストのみです。バージョンタグによるMarketplace公開は別の公開ワークフローで行います。Publisher IDは `maoren` です。初回の認証設定と公開手順は [公開手順](docs/publishing.md) を参照してください。
 
 タグ一覧は同じ階層内でドラッグ＆ドロップして並べ替えられます。タグ行の上半分では直前、下半分では直後に横線が表示され、その位置へ移動します。空白部分にドロップすると同じ階層の末尾へ移動します。順番は保存先ごとに保持され、再起動後も復元されます。
 
@@ -223,7 +228,6 @@ GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再�
 
 `@land-cruiser`・`@rav4` があると、タグ一覧では `toyota` の配下に表示します。親タグを選ぶと子孫のタグを持つノートと該当行をまとめて表示します。使用されていないタグは表示しません。複数段の定義も可能です。複数の親を定義した場合は先の定義を優先し、循環する定義は無視します。設定は一覧の分類と `excludeFromNoteMark` の継承に適用されます。本文のタグ名や色、除外後に残る印候補の優先順位は変更しません。
 
-
 ### Codiconsとタグの自動色
 
 `fnote.tagStyles` の `mark` に `$(アイコン名)` を指定すると、[VS Code標準のCodicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) をノート一覧・タグ一覧・検索結果の印に使えます。絵文字も引き続き指定できます。
@@ -241,7 +245,6 @@ GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再�
 CodiconsのフォントとCSSは拡張機能に同梱し、オフラインでも利用できます。出典・ライセンスは `media/codicons` に収録しています。
 
 階層タグのアイコンは `/` 区切りと `fnote.tagHierarchy` の両方で親から子・孫へ継承します。子にアイコンが明示されていなければ、最も近い祖先のアイコンと色を使用します。子に文字色だけの設定があってもアイコンは継承します。子の `mark` が明示されている場合はその指定を優先します。アイコンが階層全体で未設定の場合は、トップレベルのタグ名から生成した色と既定アイコンを共用します。ノートタイトルの印の優先順位は、継承元の設定順に従います。
-
 
 日付タグは `tag: "date"` で年に依存しない共通設定を指定できます。
 

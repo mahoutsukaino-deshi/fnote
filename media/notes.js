@@ -37,7 +37,7 @@
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
         const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1;
         toggle.textContent = hasChildren ? (collapsed.has(note.id) ? '▸' : '▾') : '';
-        toggle.setAttribute('aria-label', collapsed.has(note.id) ? '展開' : '折りたたむ');
+        toggle.setAttribute('aria-label', collapsed.has(note.id) ? 'Expand' : 'Collapse');
         toggle.onclick = e => { e.stopPropagation(); if (hasChildren) { collapsed.has(note.id) ? collapsed.delete(note.id) : collapsed.add(note.id); persist(); render(); select(note.id, true); send('select', note.id); } };
         const label = document.createElement('span'); label.className = 'label'; label.textContent = collapsed.has(note.id) ? (note.collapsedLabel ?? note.label) : note.label;
         row.append(toggle);
@@ -62,9 +62,9 @@
     }
     branch('', 0);
     if (!rows.length) {
-      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = tagMode ? '本文にタグを入力すると表示されます。' : '＋からノートを追加できます。'; tree.append(hint);
+      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = tagMode ? 'Add tags to your notes to see them here.' : 'Click + to add a note.'; tree.append(hint);
     }
-    const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? '同じ階層の末尾へ移動' : '最上位の末尾へ移動') : ''; tree.append(rootDrop);
+    const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level') : ''; tree.append(rootDrop);
     select(selected, hadFocus); window.scrollTo(0, scroll);
     send('expansionState', undefined, { allCollapsed: !hasExpandedBranch, hasBranches: rows.some(row => row.parent && rows.some(parent => parent.id === row.parent)) });
   }
@@ -78,7 +78,7 @@
     const row = e.target.closest('.row');
     if (!row) {
       drop = { target: undefined, position: 'inside' };
-      const rootDrop = document.getElementById('root-drop'); rootDrop.classList.add('over'); rootDrop.textContent = (tagMode ? '同じ階層の末尾へ移動' : '最上位の末尾へ移動');
+      const rootDrop = document.getElementById('root-drop'); rootDrop.classList.add('over'); rootDrop.textContent = (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level');
       return;
     }
     const target = row.dataset.id;
@@ -111,7 +111,7 @@
   document.addEventListener('dragend', finishDrag);
   function showMenu(x, y, id) {
     menu.replaceChildren();
-    for (const [command, title] of [['addChild', '子ノートを追加'], ['rename', '名前を変更'], ['move', '移動'], ['up', '上へ並べ替え'], ['down', '下へ並べ替え'], ['delete', '削除']]) {
+    for (const [command, title] of [['addChild', 'Add Child Note'], ['rename', 'Rename'], ['move', 'Move'], ['up', 'Move Up'], ['down', 'Move Down'], ['delete', 'Delete']]) {
       const button = document.createElement('button'); button.textContent = title; button.setAttribute('role', 'menuitem');
       button.onclick = () => { menu.hidden = true; send('command', id, { command }); }; menu.append(button);
     }

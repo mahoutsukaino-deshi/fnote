@@ -16,7 +16,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const setting = config().inspect<string>('storagePath')?.globalValue ?? '~/.fnote';
   const storagePath = setting === '~' ? os.homedir() : setting.startsWith('~/') ? path.join(os.homedir(), setting.slice(2)) : setting;
   if (storagePath && !path.isAbsolute(storagePath)) {
-    void vscode.window.showErrorMessage('fnote.storagePath はユーザー設定で絶対パス（または ~/ から始まるパス）を指定してください。空文字の場合は共通の個人保存領域を使用します。');
+    void vscode.window.showErrorMessage('Set fnote.storagePath in user settings to an absolute path or a path starting with ~/. Leave it empty to use the extension storage location.');
     return;
   }
   const root = storagePath ? vscode.Uri.file(storagePath) : vscode.Uri.joinPath(context.globalStorageUri, 'notes');
@@ -47,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getTreeItem: n => {
       const item = new vscode.TreeItem(`${marks(n)}${marks(n) ? ' ' : ''}${n.name}`, children(n).length ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
       item.id = n.id; item.contextValue = 'note'; item.tooltip = n.id;
-      item.command = { command: 'fnote.open', title: '開く', arguments: [n.id] };
+      item.command = { command: 'fnote.open', title: 'Open', arguments: [n.id] };
       return item;
     }
   };
@@ -76,7 +76,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = `@${n.tag}`;
       item.description = String(notes.filter(note => matchesTag(note, n.tag, hierarchy())).length);
-      item.command = { command: 'fnote.filter', title: 'タグで検索', arguments: [n.tag] };
+      item.command = { command: 'fnote.filter', title: 'Find by Tag', arguments: [n.tag] };
       return item;
     }
   };
@@ -182,7 +182,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const selected = (n?: Note) => n || tree.selection[0];
   async function add(parent = '') {
-    const name = await vscode.window.showInputBox({ prompt: 'ノート名', validateInput: validateName });
+    const name = await vscode.window.showInputBox({ prompt: 'Note name', validateInput: validateName });
     if (!name) return;
     const id = parent ? `${parent}/${name}` : name;
     await ensureAbsent(id);
@@ -192,7 +192,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   async function ensureAbsent(id: string) {
     try { await vscode.workspace.fs.stat(uri(id)); } catch (error) { if (isMissing(error)) return; throw error; }
-    throw new Error('同名のノートが存在します。');
+    throw new Error('A note with the same name already exists.');
   }
   async function relocate(id: string, destination: string, title?: string) {
     if (id === destination && title === undefined) return;
@@ -210,14 +210,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         heading ? `# ${title}${text[end - 1] === '\r' ? '\r' : ''}` : `# ${title}${eol}${eol}`);
     }
     if (id !== destination) edit.renameFile(uri(id), uri(destination), { overwrite: false });
-    if (!await vscode.workspace.applyEdit(edit)) throw new Error('移動できませんでした。');
+    if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not move the note.');
     order = order.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry);
     await context.globalState.update(`order:${root.toString()}`, order);
     await refresh();
   }
   async function move(id: string, parent: string) {
     if (!notes.some(n => n.id === id) || (parent && !notes.some(n => n.id === parent))) return;
-    if (parent && within(parent, id)) throw new Error('自分自身や子ノートの下には移動できません。');
+    if (parent && within(parent, id)) throw new Error('Cannot move a note under itself or its descendants.');
     await relocate(id, parent ? `${parent}/${path.posix.basename(id)}` : path.posix.basename(id));
   }
   async function dropNote(id: string, target: string | undefined, position: DropPosition): Promise<void> {
@@ -238,7 +238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
       : filterTree(notes, tag, hierarchy());
     const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
-    const title = activeQuery ? `検索: ${activeQuery}` : `@${tag}`;
+    const title = activeQuery ? `Search: ${activeQuery}` : `@${tag}`;
     const count = activeQuery ? hits.length : notes.filter(isMatch).length;
     const tagClasses = new Map<string, string>();
     const styles = config().get<TagStyles>('tagStyles', {});
@@ -320,12 +320,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return `<span aria-hidden="true" class="codicon codicon-${icon[1]} note-icon-${index}"></span>`;
     };
     const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
-    const body = subset.length ? branch('') : '<p>対象のノートはありません。</p>';
+    const body = subset.length ? branch('') : '<p>No matching notes.</p>';
     const titleHtml = activeQuery ? h(title) : renderTagText(title, parseTags(title), classFor);
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const nonce = crypto.randomBytes(16).toString('hex');
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
-    panel.webview.html = `<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}.url{color:var(--vscode-textLink-foreground)}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} 件のノート</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
+    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}.url{color:var(--vscode-textLink-foreground)}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
   }
   function filter(tag: string) {
     activeTag = tag;
@@ -334,14 +334,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   async function search() {
     const query = await vscode.window.showInputBox({
-      prompt: 'ノート名・本文を検索（大文字と小文字を区別しない部分一致）',
-      placeHolder: '検索キーワード', value: activeQuery ?? ''
+      prompt: 'Search note names and content (case-insensitive partial match)',
+      placeHolder: 'Search keyword', value: activeQuery ?? ''
     });
     if (!query?.trim()) return;
     await refresh();
     activeQuery = query.trim();
     activeTag = undefined;
-    showResults(`検索: ${activeQuery}`);
+    showResults(`Search: ${activeQuery}`);
   }
   function showResults(title: string) {
     if (!panel) {
@@ -372,7 +372,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
   command('rename', async (n?: Note) => {
     n = selected(n); if (!n) return;
-    const name = await vscode.window.showInputBox({ value: n.name, prompt: '新しいノート名', validateInput: validateName });
+    const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });
     if (name) {
       const destination = n.parent ? `${n.parent}/${name}` : name;
       await relocate(n.id, destination, name);
@@ -382,7 +382,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   command('move', async (n?: Note) => {
     n = selected(n); if (!n) return;
-    const target = await vscode.window.showQuickPick([{ label: '最上位', id: '' }, ...notes.filter(p => !within(p.id, n.id)).map(p => ({ label: p.id, id: p.id }))], { placeHolder: '移動先の親ノート' });
+    const target = await vscode.window.showQuickPick([{ label: 'Top Level', id: '' }, ...notes.filter(p => !within(p.id, n.id)).map(p => ({ label: p.id, id: p.id }))], { placeHolder: 'Select the destination parent note' });
     if (target) await move(n.id, target.id);
   });
   for (const [name, delta] of [['up', -1], ['down', 1]] as const) command(name, async (n?: Note) => {
@@ -397,9 +397,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('delete', async (n?: Note) => {
     n = selected(n); if (!n) return;
     const count = notes.filter(p => within(p.id, n.id)).length;
-    if (await vscode.window.showWarningMessage(`「${n.name}」と子ノート（計${count}件）を削除しますか？`, { modal: true }, '削除') !== '削除') return;
+    if (await vscode.window.showWarningMessage(`Delete "${n.name}" and its child notes (${count} ${count === 1 ? 'note' : 'notes'} in total)?`, { modal: true }, 'Delete') !== 'Delete') return;
     const edit = new vscode.WorkspaceEdit(); edit.deleteFile(uri(n.id), { recursive: true });
-    if (!await vscode.workspace.applyEdit(edit)) throw new Error('削除できませんでした。');
+    if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not delete the note.');
     await refresh();
   });
   const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '**/*'));

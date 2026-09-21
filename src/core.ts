@@ -146,7 +146,7 @@ export function parseHeadings(text: string): { title: string; start: number; lev
   for (const match of maskCode(text).matchAll(pattern)) {
     const raw = text.slice(match.index, match.index + match[0].length);
     const title = raw.replace(/^ {0,3}#{1,6}[\t ]*/, '').replace(/[\t ]+#+[\t ]*\r?$/, '').trim();
-    headings.push({ title: title || '（無題の見出し）', start: match.index, level: match[1].length });
+    headings.push({ title: title || '(Untitled heading)', start: match.index, level: match[1].length });
   }
   return headings;
 }
@@ -264,11 +264,11 @@ export const within = (path: string, parent: string) => path === parent || path.
 export function planNoteDrop(notes: readonly Note[], id: string, targetId: string | undefined, position: 'before' | 'after' | 'inside'): { destination: string; order: string[] } {
   const source = notes.find(note => note.id === id);
   const target = notes.find(note => note.id === targetId);
-  if (!source || (targetId !== undefined && !target)) throw new Error('移動元または移動先のノートが見つかりません。');
-  if (target && within(target.id, id)) throw new Error('自分自身や子ノートの位置には移動できません。');
+  if (!source || (targetId !== undefined && !target)) throw new Error('Source or destination note not found.');
+  if (target && within(target.id, id)) throw new Error('Cannot move a note to itself or its descendants.');
   const parent = target ? (position === 'inside' ? target.id : target.parent) : '';
   const destination = parent ? `${parent}/${source.name}` : source.name;
-  if (destination !== id && notes.some(note => note.id === destination)) throw new Error('同名のノートが存在します。');
+  if (destination !== id && notes.some(note => note.id === destination)) throw new Error('A note with the same name already exists.');
   const moving = notes.filter(note => within(note.id, id)).map(note => destination + note.id.slice(id.length));
   const remaining = notes.filter(note => !within(note.id, id)).map(note => note.id);
   const index = target && position !== 'inside' ? remaining.indexOf(target.id) + (position === 'after' ? 1 : 0) : remaining.length;
@@ -284,7 +284,7 @@ export function filterTree<T extends TaggedNote>(notes: readonly T[], tag: strin
   return notes.filter(n => keep.has(n.id));
 }
 export function validateName(name: string): string | undefined {
-  if (!name.trim() || name !== name.trim() || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || /^\./.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) return '空白・先頭のドット・末尾のドット・予約名・パス記号は使用できません。';
+  if (!name.trim() || name !== name.trim() || /[<>:"/\\|?*\x00-\x1f]/.test(name) || /[. ]$/.test(name) || /^\./.test(name) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(name)) return 'Enter a non-empty name without leading or trailing whitespace, leading or trailing dots, reserved names, or invalid filename characters.';
   return undefined;
 }
 export const escapeHtml = (text: string) => String(text).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]);

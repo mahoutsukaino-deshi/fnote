@@ -174,7 +174,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       },
       showInputBox: async () => inputs.shift(),
       showQuickPick: async () => picks.shift(),
-      showWarningMessage: async () => "削除",
+      showWarningMessage: async () => "Delete",
       showErrorMessage: (message) => errors.push(message),
       showTextDocument: async (doc, options) => {
         shown = { doc, options };
@@ -407,13 +407,13 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(panelCount, 1);
     assert.match(html, /音楽/);
     assert.match(html, /曲/);
-    assert.match(html, /1 件/);
+    assert.match(html, /<p>1 note<\/p>/);
     settings.set("tagHierarchy", { 状態: ["TODO", "WAIT"] });
     await run("refresh");
     assert.equal(tagRows.find((row) => row.id === "TODO").parent, "状態");
     assert.equal(tagRows.find((row) => row.id === "状態").description, "1");
     await run("filter", "状態");
-    assert.match(html, /1 件のノート/);
+    assert.match(html, /<p>1 note<\/p>/);
     assert.match(html, /@TODO/);
     settings.delete("tagHierarchy");
     await run("refresh");
@@ -621,7 +621,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       target: "音楽/B",
       position: "before",
     });
-    assert.match(errors.pop(), /子ノート/);
+    assert.match(errors.pop(), /descendants/);
     await sidebarMessage({ type: "drop", id: "音楽/B", position: "inside" });
     assert.equal(provider.getChildren().at(-1).id, "B");
     await run(
@@ -690,7 +690,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.doesNotMatch(html, /<script>alert/);
     inputs.push("ALERT");
     await run("search");
-    assert.match(html, /検索: ALERT/);
+    assert.match(html, /Search: ALERT/);
     assert.match(html, /data-id="音楽" class="ancestor"/);
     assert.match(
       html,
@@ -706,11 +706,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(html, beforeCancel);
     inputs.push("一致しない単語");
     await run("search");
-    assert.match(html, /0 件のノート/);
-    assert.match(html, /対象のノートはありません/);
+    assert.match(html, /<p>0 notes<\/p>/);
+    assert.match(html, /No matching notes/);
     inputs.push("曲");
     await run("search");
-    assert.match(html, /1 件のノート/);
+    assert.match(html, /<p>1 note<\/p>/);
     await run("filter", "TODO");
     assert.match(html, /<h1><span class="tag-color-\d+">@TODO<\/span><\/h1>/);
 
@@ -869,19 +869,19 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(html, /data-id="音楽" class="ancestor"/);
     assert.match(html, /data-id="音楽\/曲" class="ancestor"/);
     assert.match(html, /data-id="音楽\/曲\/詳細" class="match"/);
-    assert.match(html, /1 件/);
+    assert.match(html, /<p>1 note<\/p>/);
     const grandchild = provider.getChildren(child)[0];
     await run("delete", grandchild);
     picks.push({ id: child.id });
     await run("move", parent);
-    assert.match(errors.pop(), /子ノート/);
+    assert.match(errors.pop(), /descendants/);
     picks.push({ id: "" });
     await run("move", child);
     assert.equal(provider.getChildren().length, 2);
     child = provider.getChildren().find((n) => n.id === "曲");
     inputs.push("音楽");
     await run("rename", child);
-    assert.match(errors.pop(), /同名/);
+    assert.match(errors.pop(), /same name/);
     inputs.push("新しい曲");
     await run("rename", child);
     const renamed = provider.getChildren().find((n) => n.name === "新しい曲");
@@ -915,7 +915,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     inputs.push("音楽");
     await run("search");
-    assert.match(html, /検索: 音楽/);
+    assert.match(html, /Search: 音楽/);
     api.window.tabGroups.all = [{ tabs: [unrelatedTab, unrelatedWebviewTab] }];
     const closesBeforeResultsOnly = closeCalls.length;
     await run("closeAllNotes");

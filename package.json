@@ -2,7 +2,7 @@
   "name": "fnote",
   "displayName": "fnote",
   "icon": "media/icon.png",
-  "description": "階層ノートとタグでMarkdownメモを整理します。",
+  "description": "Organize Markdown notes with hierarchies and tags.",
   "version": "0.1.0",
   "publisher": "maoren",
   "engines": {
@@ -46,72 +46,72 @@
     "commands": [
       {
         "command": "fnote.add",
-        "title": "fnote: ノートを追加",
+        "title": "fnote: Add Note",
         "icon": "$(add)"
       },
       {
         "command": "fnote.addChild",
-        "title": "fnote: 子ノートを追加",
+        "title": "fnote: Add Child Note",
         "icon": "$(new-file)"
       },
       {
         "command": "fnote.rename",
-        "title": "fnote: 名前を変更"
+        "title": "fnote: Rename"
       },
       {
         "command": "fnote.move",
-        "title": "fnote: 移動"
+        "title": "fnote: Move"
       },
       {
         "command": "fnote.up",
-        "title": "fnote: 上へ並べ替え"
+        "title": "fnote: Move Up"
       },
       {
         "command": "fnote.down",
-        "title": "fnote: 下へ並べ替え"
+        "title": "fnote: Move Down"
       },
       {
         "command": "fnote.delete",
-        "title": "fnote: 削除",
+        "title": "fnote: Delete",
         "icon": "$(trash)"
       },
       {
         "command": "fnote.refresh",
-        "title": "fnote: 更新",
+        "title": "fnote: Refresh",
         "icon": "$(refresh)"
       },
       {
         "command": "fnote.search",
-        "title": "fnote: ノートを検索",
+        "title": "fnote: Search Notes",
         "icon": "$(search)"
       },
       {
         "command": "fnote.collapseNotes",
-        "title": "fnote: ノート一覧をすべて折りたたむ",
+        "title": "fnote: Collapse All Notes",
         "icon": "$(collapse-all)",
         "enablement": "fnote.notesHasBranches"
       },
       {
         "command": "fnote.collapseTags",
-        "title": "fnote: タグ一覧をすべて折りたたむ",
+        "title": "fnote: Collapse All Tags",
         "icon": "$(collapse-all)",
         "enablement": "fnote.tagsHasBranches"
       },
       {
         "command": "fnote.expandNotes",
-        "title": "fnote: ノート一覧をすべて展開",
+        "title": "fnote: Expand All Notes",
         "icon": "$(expand-all)",
         "enablement": "fnote.notesAllCollapsed && fnote.notesHasBranches"
       },
       {
         "command": "fnote.expandTags",
-        "title": "fnote: タグ一覧をすべて展開",
+        "title": "fnote: Expand All Tags",
         "icon": "$(expand-all)",
         "enablement": "fnote.tagsAllCollapsed && fnote.tagsHasBranches"
       },
       {
         "command": "fnote.closeAllNotes",
-        "title": "fnote: 開いているノートをすべて閉じる",
+        "title": "fnote: Close All Open Notes",
         "icon": "$(close-all)"
       }
     ],
@@ -166,22 +166,22 @@
           "type": "string",
           "default": "~/.fnote",
           "scope": "machine",
-          "description": "全ワークスペース共通の保存先。ユーザー設定に絶対パスまたは ~/ から始まるパスを指定してください。空文字は拡張機能の個人保存領域を使用します。変更後はウィンドウを再読み込みしてください。既存ノートは自動移行しません。"
+          "description": "Shared note storage for all workspaces. Set an absolute path or a path starting with ~/ in user settings. An empty string uses the extension storage location. Reload the window after changing this setting. Existing notes are not moved automatically."
         },
         "fnote.untaggedNoteMark": {
           "type": "string",
           "default": "$(note)",
-          "description": "印の候補となるタグがないノートに表示する印。$(note) などのCodicon名、文字・絵文字を指定できます。空文字で非表示になります。"
+          "description": "Icon for notes without an eligible tag. Use a Codicon such as $(note), text, or an emoji. An empty string hides the icon."
         },
         "fnote.defaultTagMark": {
           "type": "string",
           "default": "$(circle-filled-compact)",
-          "description": "タグの既定の印。$(circle-filled-compact) などのCodicon名、文字・絵文字を指定できます。空文字で非表示になります。"
+          "description": "Default tag icon. Use a Codicon such as $(circle-filled-compact), text, or an emoji. An empty string hides the icon."
         },
         "fnote.tagColor": {
           "type": "string",
           "default": "#00BFFF",
-          "description": "タグの既定色。",
+          "description": "Default tag text color.",
           "format": "color"
         },
         "fnote.tagStyles": {
@@ -218,7 +218,7 @@
               },
               "mark": {
                 "type": "string",
-                "description": "文字・絵文字、または $(circle-filled-compact) などのCodicon名。"
+                "description": "Text, an emoji, or a Codicon such as $(circle-filled-compact)."
               },
               "color": {
                 "type": "string",
@@ -226,18 +226,18 @@
               },
               "backgroundColor": {
                 "type": "string",
-                "description": "このタグの背景色。空文字で背景色なし。",
+                "description": "Background color for this tag. An empty string means no background color.",
                 "format": "color"
               },
               "excludeFromNoteMark": {
                 "type": "boolean",
                 "default": false,
-                "description": "true の場合、ノートタイトルの印の候補と優先順位判定から除外します。階層の子タグにも継承し、子で false を指定すると解除します。タグ一覧の印・色には影響しません。"
+                "description": "Exclude this tag when choosing and prioritizing note icons. Child tags inherit this setting and can override it with false. Icons and colors in the tag list are unaffected."
               },
               "markColor": {
                 "type": "string",
                 "format": "color",
-                "description": "Codiconの色。未指定ならcolor、それも未指定ならタグ名から生成したHSL色を使用します。絵文字の色は変更しません。"
+                "description": "Codicon color. Falls back to color, then to an HSL color generated from the tag name. Does not change emoji colors."
               }
             },
             "additionalProperties": false
@@ -247,7 +247,7 @@
             "properties": {
               "mark": {
                 "type": "string",
-                "description": "文字・絵文字、または $(circle-filled-compact) などのCodicon名。"
+                "description": "Text, an emoji, or a Codicon such as $(circle-filled-compact)."
               },
               "color": {
                 "type": "string",
@@ -260,22 +260,22 @@
               "excludeFromNoteMark": {
                 "type": "boolean",
                 "default": false,
-                "description": "true の場合、ノートタイトルの印の候補と優先順位判定から除外します。階層の子タグにも継承し、子で false を指定すると解除します。タグ一覧の印・色には影響しません。"
+                "description": "Exclude this tag when choosing and prioritizing note icons. Child tags inherit this setting and can override it with false. Icons and colors in the tag list are unaffected."
               },
               "markColor": {
                 "type": "string",
                 "format": "color",
-                "description": "Codiconの色。未指定ならcolor、それも未指定ならタグ名から生成したHSL色を使用します。絵文字の色は変更しません。"
+                "description": "Codicon color. Falls back to color, then to an HSL color generated from the tag name. Does not change emoji colors."
               }
             },
             "additionalProperties": false
           },
-          "description": "上に定義したタグほどノートの印の優先度が高くなります。配列の各要素にtag（@なし）、mark、markColor、color、backgroundColor、excludeFromNoteMarkを指定。親タグの設定は子タグにも適用。tagをdateにすると日付タグの年・月・日共通の既定設定になります（年別の個別設定が優先）。従来のオブジェクト形式も対応しますが、数字だけのタグ名を含む場合の順序保証には配列形式を使用してください。"
+          "description": "Tags defined earlier have higher priority when choosing note icons. Each array entry accepts tag (without @), mark, markColor, color, backgroundColor, and excludeFromNoteMark. Parent settings apply to child tags. Use tag: \"date\" for shared year, month, and day defaults; year-specific settings take priority. The legacy object format is also supported. Use the array format to preserve priority for numeric tag names."
         },
         "fnote.tagBackgroundColor": {
           "type": "string",
           "default": "",
-          "description": "タグの既定の背景色。空文字は背景色なし。本文エディタと検索結果に適用します。",
+          "description": "Default tag background color in the editor and search results. An empty string means no background color.",
           "format": "color"
         },
         "fnote.tagHierarchy": {
@@ -288,18 +288,18 @@
             },
             "uniqueItems": true
           },
-          "description": "タグ一覧の親タグと子タグ（@なし）を定義します。例: {\"toyota\": [\"land-cruiser\", \"rav4\"]}。本文のタグ名は変更しません。親タグ選択で配下をまとめて表示します。複数の親は先に定義されたものを優先し、循環する定義は無視します。"
+          "description": "Define parent and child tags without @, for example {\"toyota\": [\"land-cruiser\", \"rav4\"]}. Tags in note content are unchanged. Selecting a parent shows matches from its descendants. If a tag has multiple parents, the first definition wins. Cyclic definitions are ignored."
         }
       }
     },
     "viewsWelcome": [
       {
         "view": "fnote.notes",
-        "contents": "Markdownでメモを始めましょう。\n[ノートを追加](command:fnote.add)"
+        "contents": "Start taking notes in Markdown.\n[Add Note](command:fnote.add)"
       },
       {
         "view": "fnote.tags",
-        "contents": "本文に @TODO や @2026/09/01 を入力すると表示されます。"
+        "contents": "Add @TODO or @2026/09/01 to your notes to see tags here."
       }
     ]
   },

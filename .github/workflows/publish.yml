@@ -1,16 +1,17 @@
 name: Publish extension
+run-name: Publish extension [${{ (github.event_name == 'pull_request' && github.base_ref) || (true && github.ref) }}]
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing version tag (example: v0.1.0)'
+        description: "Existing version tag (example: v0.1.0)"
         required: true
         type: string
       publish:
-        description: 'Publish to Visual Studio Marketplace (false = build only)'
+        description: "Publish to Visual Studio Marketplace (false = build only)"
         required: true
         default: false
         type: boolean
@@ -38,7 +39,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - name: Validate release version
         run: node scripts/check-release.cjs
@@ -68,7 +69,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version: "22"
           cache: npm
       - run: npm ci --include=dev
       - uses: actions/download-artifact@v7

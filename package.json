@@ -4,7 +4,7 @@
   "icon": "media/icon.png",
   "description": "階層ノートとタグでMarkdownメモを整理します。",
   "version": "0.1.0",
-  "publisher": "mtfuji",
+  "publisher": "maoren",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -191,17 +191,19 @@
           ],
           "default": [
             {
+              "tag": "FIX",
+              "mark": "$(bug)",
+              "color": "#f87171"
+            },
+            {
               "tag": "TODO",
-              "mark": "🔴",
-              "color": "#00BFFF"
+              "mark": "$(circle-filled-compact)",
+              "color": "#f87171"
             },
             {
-              "tag": "バラード",
-              "mark": "🔵"
-            },
-            {
-              "tag": "ロック",
-              "mark": "🟡"
+              "tag": "date",
+              "mark": "$(calendar)",
+              "excludeFromNoteMark": true
             }
           ],
           "items": {

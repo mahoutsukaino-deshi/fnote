@@ -1,255 +1,246 @@
 # fnote
 
-VS CodeでMarkdownのメモを階層ノートとタグで整理する拡張機能です。ノート一覧は専用のWebview、タグ一覧も専用のWebview、本文の編集はVS Code標準のMarkdownエディタを使用します。
+[日本語](README.ja.md)
 
-## インストールと起動
+**Write in Markdown. Organize in a hierarchy. Find with tags.**
 
-VS Code 1.85以上が必要です。現在のバージョンは `0.1.0` です。
+fnote is a VS Code extension for managing notes and work logs. Organize project notes in a hierarchy and use tags such as `@TODO` and dates to find the information you need across multiple notes.
 
-1. VS Codeの拡張機能画面の「…」→「VSIX からのインストール」で `fnote-0.1.0.vsix` を選択します。VSIXをソースから作成する手順は後述します。
-2. エクスプローラーの **fnote - list** の **＋** からノートを追加します。
-3. ノートをクリックしてMarkdownを編集し、`Ctrl+S` / `Cmd+S` で保存します。新しいノートには `# ノート名` の見出しが入ります。
-4. 本文に `@TODO` などを入力すると、**fnote - tags** にタグが表示されます。
+Edit your notes in the familiar Markdown editor. Notes are saved as Markdown files and stay available when you switch workspaces.
 
-拡張機能をインストールして利用するだけなら、Node.jsやPython、開発用依存パッケージは不要です。
+- **Hierarchical notes**: Organize notes as parents and children, and move or reorder them with drag and drop.
+- **Heading outline**: Open a heading from the note list to jump to its position in the note.
+- **Tags and search**: Find notes and matching lines by tag or keyword.
+- **Time tracking**: Add dates and durations to review your work by day, month, or year.
+- **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
 
-ノート一覧では、各ノートの下に本文の `##`〜`######` を階層アウトラインとして表示します。見出しは折りたたみでき、クリックすると本文の該当位置へ移動します。コードブロック内の見出しは表示しません。
+## Getting started
 
-## ノートの操作
+Requires **VS Code 1.85 or later**. You do not need to install Node.js or Python to use the extension.
 
-一覧のノート名は本文の最初の `# 見出し` を優先し、編集中も自動更新します。`# 見出し` がない場合はフォルダー名を表示します。F2で名前を変更すると、保存先フォルダーと本文の最初の `# 見出し` を更新します。本文からのタイトル編集では保存先フォルダーは変わりません。
+Search for `fnote` in the VS Code Extensions view and install the extension published by **maoren**. To install a VSIX file, select **Install from VSIX...** from the **…** menu in the Extensions view.
 
-ノートを右クリックすると、子ノートの追加・名前変更・移動・上下の並べ替え・削除ができます。「＋」は最上位に追加し、「移動」では移動先の親ノートまたは最上位を選択します。上下の並べ替えは同じ親を持つノート間で行います。
+## Create your first note
 
-リスト・タグ一覧のタイトルバーのボタンは、全項目が折りたたまれているときは「すべて展開」、一つでも開いているときは「すべて折りたたむ」に切り替わります。展開できる項目がない場合は無効になります。
-
-リスト一覧のタイトルバーの「開いているノートをすべて閉じる」ボタンで、fnoteのノートのドキュメントタブを全エディターグループから一括で閉じられます。他のファイルや検索結果は対象外です。未保存の変更がある場合はVS Code標準の保存確認が表示されます。
-
-ドラッグ＆ドロップでも階層と順序を変更できます。
-
-- 行の上端・下端：横線の位置に、そのノートの前・後へ挿入します。
-- 行の中央：枠が表示されたノートの子として末尾へ移動します。
-- 一覧下部の空白：最上位の末尾へ移動します。
-
-親ノートの移動・改名では子ノートもまとめて移動します。自分自身や子ノートの下への移動、同じ場所への同名ノートの作成はできません。削除時は子ノートを含む件数を確認するダイアログが表示されます。
-
-ノート名には前後の空白、先頭・末尾のドット、パス記号（`/`、`\` など）、予約名（`CON`、`NUL` など）は使えません。
-
-ノート一覧では次のキー操作が使えます。開いているノートに合わせて一覧の選択位置も更新されます。
-
-| キー          | 操作                                 |
-| ------------- | ------------------------------------ |
-| ↑ / ↓         | 選択を移動                           |
-| Home / End    | 表示中の先頭・末尾を選択             |
-| ←             | 子ノートを折りたたむ、または親を選択 |
-| →             | 子ノートを展開                       |
-| Enter / Space | 選択したノートを開く                 |
-| F2            | 名前を変更                           |
-| Delete        | 削除（確認あり）                     |
-| Shift+F10     | 操作メニューを表示                   |
-
-一覧の更新ボタン、または `fnote: 更新` で保存先を再読み込みできます。ファイルの変更や本文の編集中にも、一覧・タグの色・ノートの印・検索結果が更新されます。
-
-## 検索
-
-### ノート名・本文の検索
-
-ノート一覧の虫眼鏡ボタン、またはコマンドパレットの `fnote: ノートを検索` を使用します。
-
-検索語の前後の空白を除き、入力文字列全体で大文字・小文字を区別しない部分一致検索を行います。コード内も検索対象です。エディタ領域の検索結果に一致したノートと本文行を表示し、親ノートの階層も同じ文字色で表示します。ノート名をクリックすると本文を、本文行をクリックするとその行を開きます。空欄・キャンセルでは現在の結果を維持します。
-
-### タグ検索
-
-**fnote - tags** には `/` 区切りのタグを階層表示します。例えば `@2026/09/01` は `2026` → `09` → `01` となり、展開・折りたたみができます。各タグの右側の数字は、そのタグと子タグに一致するノート数です。
-
-タグをクリックすると、エディタ領域に該当ノートとタグを含む本文行を表示します。親タグの検索には子タグも含み、該当ノートの親階層を残します。タグ名は大文字・小文字を区別します。
-
-本文に `#` ～ `######` の見出しがあれば、一致する行が属する見出しとその上位見出しも階層表示します。無関係な節やコード内の見出しは除外します。見出しより前の一致行や、見出しがないノートの一致行も表示します。ノート名・見出し・本文行をクリックして、それぞれの位置を開けます。
-
-キーワード検索とタグ検索は同じ結果タブを使用し、新しい検索で表示を切り替えます。
-
-## タグの書き方
-
-タグは本文中の `@` に続けて記述します。日本語などの文字、数字、ハイフン、アンダースコアが使え、`/` で階層化できます。同じ行に複数記述できます。
+1. Open Explorer and click **＋** in **Fnote - List**.
+2. Name the note “Today's work”.
+3. Enter the following example in the note and save it (`Ctrl+S` on Windows / Linux, `Cmd+S` on macOS).
 
 ```markdown
-# 今日の作業
+# Today's work
 
-@TODO READMEを更新する
-@音楽/バラード 練習する
-@2026/09/01 @10:30-12:00 @10m @1h 作業メモ
+## To do
+
+@TODO Update the README
+@TODO Record a walkthrough video
+
+## Work log
+
+@2026/09/21 @30m Reorganized the README
 ```
 
-- 日付タグ：`@2026/09/01` のような `@yyyy/mm/dd` 形式。
-- 時刻タグ：`@10:30-12:00` のような `@HH:mm-HH:mm` 形式、または `@10m`（分）・`@1h`（時間）のような整数と小文字の `m` / `h`。
+![Create your first note](media/screenshots/create-note.png)
 
-日付タグはタグ一覧に表示します。時刻タグは本文・検索結果で色付けしますが、タグ一覧には表示しません。日付タグを選択すると、同じ行にその日付が1つだけある有効な時刻タグの作業時間を合計してタイトル横に表示します。年・月のタグ選択時も配下の日付を集計し、最上部のタイトルには対象ノート全体の合計を表示します。24時間以上も `26h30m` のように時間と分で表示します。上位見出しには配下の見出し、ノート名には子ノートも含めた合計を表示します。時間のないタイトルには表示しません。
+4. Click `TODO` in **Fnote - Tags**. Notes and lines containing the tag appear in the results.
 
-バッククォートのインラインコード、バッククォート・チルダ・単一引用符3個以上のフェンス、リストの階層分を除いて4スペース以上字下げされたコード、同じ行の単一引用符で囲まれた範囲はタグ解析から除外します。メールアドレス内の `@` や `\@escaped` もタグとして扱いません。
+![Find notes by tag](media/screenshots/tag-search.png)
 
-## 保存先
+5. Click a matching line to jump to that position in the original note.
 
-保存先は全ワークスペース共通で、既定は `~/.fnote` です。フォルダーを開いていない場合やF5でのデバッグ起動時も同じ保存先を使用します。
+You can now write a note, find it by tag, and pick up where you left off.
 
-VS Codeの**ユーザー設定**の `fnote.storagePath` に、絶対パスまたは `~/` から始まるパスを指定できます。ワークスペース設定では変更できません。空文字 `""` を指定すると、拡張機能の個人保存領域（`context.globalStorageUri` 配下の `notes`）を使用します。変更後は各ウィンドウを再読み込みしてください。
+## Organize your notes
 
-ノートはフォルダー階層とUTF-8の `index.md` で保存します。
+### Use child notes and headings
 
-```text
-~/.fnote/
-└── 仕事/
-    ├── index.md
-    └── 会議メモ/
-        └── index.md
+Right-click a note and select “Add Child Note” to create a separate note under it. For example, you can keep “Meeting notes” and “Research notes” under “Work”.
+
+To divide a single note into sections, use Markdown headings from `##` to `######`. Headings also appear as a hierarchy in the note list. Click one to open its position in the note.
+
+### Common actions
+
+| Action                    | How                                                        |
+| ------------------------- | ---------------------------------------------------------- |
+| Add a top-level note      | Click **＋** in **Fnote - List**                           |
+| Add a child note          | Right-click the parent note → “Add Child Note”             |
+| Rename a note             | Select the note and press `F2`, or right-click → “Rename”  |
+| Move or reorder notes     | Drag and drop, or use the context menu                     |
+| Delete a note             | Right-click → “Delete” (confirmation includes child notes) |
+| Expand or collapse a list | Use the expand / collapse buttons in the list's title bar  |
+| Close all open notes      | Select “Close All Open Notes” in **Fnote - List**          |
+
+Drop at the **top or bottom edge of a row** to place a note before or after it, in the **center** to make it a child, or in the **empty space below the list** to move it to the top level. Moving a parent note also moves its children.
+
+The list uses the first `# Heading` in the note as its title. Editing that heading changes the displayed name. Renaming with `F2` changes both the folder name and the first heading.
+
+“Close All” closes fnote notes and the tag / search results view. Other files stay open. VS Code asks whether to save any unsaved notes; if you cancel closing them, the results view also stays open.
+
+## Find notes with tags
+
+Write `@tag-name` in a note to add it to the tag list. No registration is needed.
+
+```markdown
+@TODO Decide on the next task
+@Reference Keep a configuration example
+@Work/Meetings Prepare the next agenda
 ```
 
-保存先配下のドットで始まらないフォルダーをノートとして読み込みます。`index.md` がないフォルダーは空のノートとして表示し、開いたときにファイルを作成します。
+Use `/` to create a hierarchy, such as `Work` → `Meetings`. Clicking a parent tag also searches its children. Tag names are case-sensitive: `@TODO` and `@todo` are different tags.
 
-並び順は保存先ごとに、拡張機能の共通状態（`globalState`）に保存します。ノートフォルダーをコピーしても並び順は引き継がれません。既存ノートの自動移行や別端末への同期機能はありません。保存先を変更する場合は、元の保存先にあるノートフォルダーを新しい保存先へコピーしてください。
+Results show matching lines along with their headings and parent notes, so you can see the context before returning to the original position. The number beside a tag is the count of matching notes, including its child tags.
 
-## タグの色と印の設定
+You can also drag tags within the same level to change their display order.
 
-| 設定                       | 既定値                       | 用途                                 |
-| -------------------------- | ---------------------------- | ------------------------------------ |
-| `fnote.storagePath`        | `"~/.fnote"`                 | 共通の保存先                         |
-| `fnote.untaggedNoteMark`   | `"$(note)"`                  | 通常タグがないノートの印             |
-| `fnote.defaultTagMark`     | `"$(circle-filled-compact)"` | タグ一覧で印が未設定・空の場合の印   |
-| `fnote.tagColor`           | `"#00BFFF"`                  | タグの既定文字色                     |
-| `fnote.tagBackgroundColor` | `""`                         | タグの既定背景色（空文字は背景なし） |
-| `fnote.tagStyles`          | 下記参照                     | タグごとの印・文字色・背景色         |
+> Tags are not recognized inside code blocks or inline code, in email addresses, or when escaped as `\@`.
 
-`fnote.tagStyles` の既定値は次のとおりです。
+### Search by keyword
 
-```json
-[
-  { "tag": "TODO", "mark": "🔴", "color": "#00BFFF" },
-  { "tag": "バラード", "mark": "🔵" },
-  { "tag": "ロック", "mark": "🟡" }
-]
+Use the magnifying glass button in **Fnote - List**, or **fnote: Search Notes** in the Command Palette. Search matches parts of note names and content, ignoring case.
+
+Tag and keyword searches share the same results tab. Each new search replaces the contents of that tab.
+
+## Record dates and work time
+
+Write a date and time on the **same line** to total your work time through date tags.
+
+```markdown
+# Work log
+
+@2026/09/21 @30m Updated the documentation
+@2026/09/21 @10:00-11:00 Checked the workflow
+@2026/09/22 @1h Planned the next feature
 ```
 
-ユーザー設定のカスタマイズ例です。
+![Record dates and work time](media/screenshots/work-log.png)
+
+Expand `2026` → `09` → `21` in the tag list and select the day. This example shows **1h30m**. Select `09` for the monthly total or `2026` for the yearly total.
+
+![View the daily work time total](media/screenshots/daily-total.png)
+
+| Format         | Meaning                                         |
+| -------------- | ----------------------------------------------- |
+| `@2026/09/21`  | Date (four-digit year, two-digit month and day) |
+| `@30m`         | 30 minutes                                      |
+| `@1h`          | 1 hour                                          |
+| `@10:00-11:00` | Start and end times                             |
+
+Time is counted only on lines containing exactly one date. Time tags themselves do not appear in the tag list. Use whole numbers and lowercase `m` / `h` for durations.
+
+## Customize fnote
+
+Open VS Code Settings and enter **`@ext:maoren.fnote`** in the search field to show fnote settings.
+
+To edit tag settings together, select **Preferences: Open User Settings (JSON)** in the Command Palette. Add the examples below inside the `{ ... }` of your existing `settings.json`. Replace the setting if it already exists.
+
+### Change tag icons and colors
 
 ```json
 {
-  "fnote.storagePath": "~/.fnote",
-  "fnote.untaggedNoteMark": "$(note)",
-  "fnote.defaultTagMark": "$(circle-filled-compact)",
-  "fnote.tagColor": "#00BFFF",
-  "fnote.tagBackgroundColor": "",
   "fnote.tagStyles": [
     {
       "tag": "TODO",
-      "mark": "🔴",
-      "color": "#FF4444",
-      "backgroundColor": "#402020"
+      "mark": "$(circle-filled-compact)",
+      "markColor": "#FF5555",
+      "color": "#FF5555"
     },
-    { "tag": "FIX", "mark": "🐞", "color": "#FF4444" },
-    { "tag": "2026", "mark": "📅" }
+    { "tag": "Done", "mark": "✅", "color": "#66BB6A" },
+    {
+      "tag": "Reference",
+      "mark": "$(book)",
+      "markColor": "#66AAFF",
+      "excludeFromNoteMark": true
+    },
+    { "tag": "date", "mark": "$(calendar)", "markColor": "#66AAFF" }
   ]
 }
 ```
 
-### 設定の選択と色
+- `tag`: The tag name, without `@`. Use `date` for settings shared by date tags.
+- `mark`: The icon shown in lists. Use an emoji or a built-in VS Code icon such as `$(book)`. See the [VS Code icon reference](https://microsoft.github.io/vscode-codicons/dist/codicon.html) for available icons.
+- `markColor`: The color of a built-in icon. This does not change emoji colors.
+- `color`: The tag's text color in notes and search results.
+- `backgroundColor`: The tag's background color in notes and search results. An empty string means no background color.
+- `excludeFromNoteMark`: Set to `true` to exclude the tag when choosing a note's icon. The tag still appears in the tag list.
 
-`tag` に `@` は含めません。完全一致の定義を優先し、なければ最も近い親タグの定義を使用します。同じタグを重複定義した場合は最初の定義が有効です。
+When a note has multiple tags, **icon settings earlier in the array take priority**. Date and time tags are not used as note icons. When a parent note is collapsed, tags in its descendants are also considered.
 
-選ばれた定義に文字色・背景色がなければ、それぞれ `fnote.tagColor`・`fnote.tagBackgroundColor` を使用します。子タグに独自の定義がある場合、未指定の文字色・背景色を親タグの定義から補うことはありません。アイコンの継承は後述のルールに従います。`backgroundColor: ""` は既定の背景色を無効にします。
+A child tag inherits its parent's icon if it has no icon setting of its own. Text and background colors use an exact match, or the closest `/`-separated parent's settings if there is no exact match. If a child has its own settings, omitted text and background colors fall back to the global defaults.
 
-文字色と背景色は本文エディタと検索結果の本文・見出し内のタグに適用します。コード内のタグ風の文字列は色付けしません。設定JSONの16進カラー値には色見本が表示され、カラーピッカーで編集できます。
-
-### ノート一覧とタグ一覧の印
-
-ノート一覧では、そのノートの本文にあるタグから印を1つ選びます。
-
-- 日付・時刻タグと、適用される定義に `excludeFromNoteMark: true` があるタグは候補から除外します。候補がなければ `fnote.untaggedNoteMark` を表示します。
-- 通常タグに適用される定義のうち、`fnote.tagStyles` の配列で先にあり、空でない印を持つものを使用します。本文内の記載順には依存しません。
-- 除外されていない通常タグがあっても該当する印がなければ、`fnote.defaultTagMark` を表示します。
-
-たとえば `{ "tag": "参考", "mark": "📚", "excludeFromNoteMark": true }` と設定すると、`@参考` は設定順にかかわらずノートの印に使われません。折りたたんだ親ノートの印も同様です。この属性は `/` 区切りの階層と `fnote.tagHierarchy` の親子関係に沿って、最も近い明示値を継承します。子タグに独自の印や色があっても継承し、子で `excludeFromNoteMark: false` を明示すると除外を解除できます。祖先にも指定がなければ従来どおりです。
-
-タグ一覧では、`excludeFromNoteMark` にかかわらず選ばれた定義の印を使用し、未設定・空の場合は `fnote.defaultTagMark` を表示します。日付タグにも印を設定できます。
-
-印には文字や絵文字を指定できます。`fnote.untaggedNoteMark`・`fnote.defaultTagMark` を空文字にすると、それぞれの既定の印を非表示にできます。色と印の変更は再起動せずに反映されます。
-
-`fnote.tagStyles` は従来のオブジェクト形式（`{ "TODO": { "mark": "🔴" } }`）にも対応します。ただし数字だけのキーはJavaScriptの列挙順の影響を受けるため、印の優先順位を指定するには配列形式を使用してください。
-
-## 開発・検証・パッケージ作成
-
-開発環境の目安はNode.js 20以上です。VSIXの作成にはPython 3も必要です。
-
-```sh
-npm ci --include=dev
-npm run build
-npm test
-npm run check
-npm run package
-```
-
-| コマンド          | 内容                                                                             |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `npm run build`   | `src/**/*.ts` をstrictモードで型検査し、`dist/` にJavaScriptとソースマップを生成 |
-| `npm run watch`   | TypeScriptの変更を監視してビルド                                                 |
-| `npm test`        | ビルド後、Node.jsのテストランナーで `test/` のテストを実行                       |
-| `npm run check`   | TypeScriptの型検査と `media/notes.js` の構文チェック                             |
-| `npm run package` | ビルド後、`scripts/package.py` で `fnote-0.1.0.vsix` を生成                      |
-
-このフォルダーをVS Codeで開き、F5で「fnote 拡張機能を起動」を実行すると、ビルド後に拡張機能開発ホストを起動します。デバッグ起動も通常利用と同じ保存先を使うため、検証用ノートを分ける場合は開発ホストのユーザー設定で保存先を変更し、再読み込みしてください。
-
-テストはタグ解析・設定の優先順位・検索・移動計画などと、VS Code APIを模擬した保存・再読込・移動・検索・削除を検証します。実際のVS Codeでの描画やドラッグ操作は自動テストの対象ではありません。生成したVSIXのインストール後は、子ノート追加、ドラッグ移動、タグ検索、テーマに応じた表示、再起動後の保存内容を確認してください。
-
-VSIXにはコンパイル済みJavaScript、ノート一覧用のスクリプト、README、画面イメージを収録します。
-
-## 参考画面
-
-設計時の画面イメージです。現在のビュー名や表示は上記の説明を参照してください。
-
-![設計時の画面イメージ](画面イメージ.png)
-
-## Marketplaceへの公開・更新
-
-GitHub ActionsのCIは、各ブランチへのPushとPRの作成・更新・再オープン時にチェックとテストまでを実行します。PRがマージされた場合のみ、マージコミットのチェック・テスト成功後にVSIXを作成し、`fnote-vsix` 成果物として保存します。未マージのクローズでは実行せず、手動実行はチェックとテストのみです。バージョンタグによるMarketplace公開は別の公開ワークフローで行います。Publisher IDは `maoren` です。初回の認証設定と公開手順は [公開手順](docs/publishing.md) を参照してください。
-
-タグ一覧は同じ階層内でドラッグ＆ドロップして並べ替えられます。タグ行の上半分では直前、下半分では直後に横線が表示され、その位置へ移動します。空白部分にドロップすると同じ階層の末尾へ移動します。順番は保存先ごとに保持され、再起動後も復元されます。
-
-日付タグの年・月のツリーは初回表示時に折りたたみます。その後は開閉状態を復元します。新しく追加された年・月も折りたたんで表示します。
-
-ノート一覧で親ノートを折りたたむと、子孫ノートを含むタグのうち設定順で最優先の印を表示します。展開すると、そのノート自身の印に戻ります。
-
-### タグ一覧の階層設定
-
-本文のタグ名を変えずに、`fnote.tagHierarchy` で親子関係を定義できます。
+The default value of `fnote.tagStyles` is:
 
 ```json
-"fnote.tagHierarchy": {
-  "toyota": ["land-cruiser", "rav4"]
-}
-```
-
-`@land-cruiser`・`@rav4` があると、タグ一覧では `toyota` の配下に表示します。親タグを選ぶと子孫のタグを持つノートと該当行をまとめて表示します。使用されていないタグは表示しません。複数段の定義も可能です。複数の親を定義した場合は先の定義を優先し、循環する定義は無視します。設定は一覧の分類と `excludeFromNoteMark` の継承に適用されます。本文のタグ名や色、除外後に残る印候補の優先順位は変更しません。
-
-### Codiconsとタグの自動色
-
-`fnote.tagStyles` の `mark` に `$(アイコン名)` を指定すると、[VS Code標準のCodicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) をノート一覧・タグ一覧・検索結果の印に使えます。絵文字も引き続き指定できます。
-
-```json
-"fnote.tagStyles": [
-  { "tag": "TODO", "mark": "$(circle-filled-compact)", "markColor": "#FF5555" },
-  { "tag": "参考", "mark": "$(book)", "color": "#66AAFF" },
-  { "tag": "完了", "mark": "✅" }
+[
+  { "tag": "FIX", "mark": "$(bug)", "color": "#f87171" },
+  { "tag": "TODO", "mark": "$(circle-filled-compact)", "color": "#f87171" },
+  { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
 ]
 ```
 
-未設定タグの印は `$(circle-filled-compact)` です。`fnote.defaultTagMark` を設定すると変更できます。Codiconの色は `markColor` → `color` → 自動色の順で決まります。自動色は64色相×4彩度×4明度の1024色のHSLパレットからタグ名に基づいて選ぶため、再起動しても同じ色になります。明度を42〜60%に制限し、黒・白を避けます。本文のタグ文字色の設定は従来どおりです。絵文字そのものの色は変更しません。
+Tags without individual settings use the default icon and an automatically generated color based on the tag name. An array in your user settings replaces the default array, so include any tag settings you want to keep. Icon and color changes take effect without restarting.
 
-CodiconsのフォントとCSSは拡張機能に同梱し、オフラインでも利用できます。出典・ライセンスは `media/codicons` に収録しています。
+### Group tags without renaming them
 
-階層タグのアイコンは `/` 区切りと `fnote.tagHierarchy` の両方で親から子・孫へ継承します。子にアイコンが明示されていなければ、最も近い祖先のアイコンと色を使用します。子に文字色だけの設定があってもアイコンは継承します。子の `mark` が明示されている場合はその指定を優先します。アイコンが階層全体で未設定の場合は、トップレベルのタグ名から生成した色と既定アイコンを共用します。ノートタイトルの印の優先順位は、継承元の設定順に従います。
-
-日付タグは `tag: "date"` で年に依存しない共通設定を指定できます。
+To group `@TODO` and `@Done` under “Status”, use:
 
 ```json
-{ "tag": "date", "mark": "$(calendar)", "markColor": "#66AAFF" }
+{
+  "fnote.tagHierarchy": {
+    "Status": ["TODO", "Done"]
+  }
+}
 ```
 
-`2026`・`2026/09`・`2026/09/17` など年・月・日の各階層と、翌年以降にも同じアイコン・色が適用されます。`color`・`backgroundColor` も日付タグ共通の既定値として使用できます。既存の `2026` など年・月・日を指定した個別設定がある場合はそちらを優先するため、共通化する場合は年別のアイコン設定を削除してください。本文の日付タグは従来どおり `@2026/09/17` と記述し、タグ一覧の階層や検索方法は変わりません。
+Selecting “Status” in the tag list shows notes matching any of its child tags. You do not need to change tag names in your notes.
+
+### Change the storage location
+
+The default location is **`.fnote`** in your home folder. The same notes are shared across all workspaces.
+
+Set an absolute path or a path starting with `~/` in your **user settings**, then run **Developer: Reload Window** from the Command Palette. The storage location cannot be changed through workspace settings.
+
+```json
+{
+  "fnote.storagePath": "~/Documents/fnote"
+}
+```
+
+On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/fnote"`.
+
+**Changing the storage location does not move existing notes automatically.** Save any notes you are editing, copy the note folders from the old location to the new one, and then change the setting.
+
+### Key settings
+
+| Setting                    | Default                               | Purpose                                          |
+| -------------------------- | ------------------------------------- | ------------------------------------------------ |
+| `fnote.storagePath`        | `~/.fnote`                            | Note storage location                            |
+| `fnote.untaggedNoteMark`   | `$(note)`                             | Icon for notes with no eligible tag icon         |
+| `fnote.defaultTagMark`     | `$(circle-filled-compact)`            | Default icon for tags without an individual icon |
+| `fnote.tagColor`           | `#00BFFF`                             | Default tag text color                           |
+| `fnote.tagBackgroundColor` | Empty string                          | Default tag background color                     |
+| `fnote.tagStyles`          | `FIX`, `TODO`, and `date` (see above) | Tag icons, colors, and priority                  |
+| `fnote.tagHierarchy`       | `{}`                                  | Parent-child relationships between tags          |
+
+## Storage and backups
+
+Notes are saved as UTF-8 Markdown files. For example, creating “Meeting notes” under “Work” produces this structure:
+
+```text
+.fnote/
+└── Work/
+    ├── index.md
+    └── Meeting notes/
+        └── index.md
+```
+
+To back up your note content, copy the storage folder. Automatic synchronization between devices is not available. List ordering is managed by VS Code, so copying the folder alone does not preserve it.
+
+## Troubleshooting
+
+| Issue                                               | What to check                                                                                                    |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| A tag does not appear                               | Check that it uses the `@tag-name` format and is outside code. Refresh the list if needed.                       |
+| Notes disappear after changing the storage location | Check that you copied the notes to the new location and reloaded the window.                                     |
+| An unexpected icon appears                          | Check the order of `fnote.tagStyles` and `excludeFromNoteMark`. Date and time tags are excluded from note icons. |
+| Time is not totaled                                 | Include exactly one date tag on the same line and use a supported time format, such as `@30m`.                   |
+
+Report bugs and suggestions through [GitHub Issues](https://github.com/mahoutsukaino-deshi/fnote/issues). Include your VS Code and fnote versions and steps to reproduce the issue.

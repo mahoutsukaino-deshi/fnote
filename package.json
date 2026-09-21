@@ -20,7 +20,7 @@
     "watch": "tsc -p . --watch",
     "test": "npm run build && node --test",
     "check": "tsc -p . --noEmit && node --check media/notes.js",
-    "package": "npm run build && python3 scripts/package.py",
+    "package": "npm run package:marketplace",
     "vscode:prepublish": "npm run build",
     "package:marketplace": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vsce package --no-dependencies --skip-license --githubBranch main --out artifacts/fnote.vsix"
   },

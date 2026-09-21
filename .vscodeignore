@@ -1,10 +1,12 @@
 **
 !package.json
 !README.md
+!README.ja.md
 !dist/core.js
 !dist/extension.js
 !dist/notesView.js
 !media/notes.js
 !media/icon.png
+!media/screenshots/**
 
 !media/codicons/**

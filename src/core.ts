@@ -9,6 +9,35 @@ export interface TagStyleDefinition extends TagStyle { tag: string }
 export type TagStyles = Record<string, TagStyle> | readonly TagStyleDefinition[];
 export interface TagNode { label: string; tag: string; children: Map<string, TagNode> }
 
+// Webviews do not inherit the editor's TextMate token colors.
+export function markdownLinkColor(customizations: unknown, theme: string): string | undefined {
+  if (!customizations || typeof customizations !== 'object') return undefined;
+  const configuration = customizations as Record<string, unknown>;
+  const themed = configuration[`[${theme}]`];
+  let color: string | undefined;
+  let specificity = -1;
+  for (const section of [configuration, themed]) {
+    if (!section || typeof section !== 'object') continue;
+    const rules = (section as { textMateRules?: unknown }).textMateRules;
+    if (!Array.isArray(rules)) continue;
+    for (const rule of rules) {
+      const foreground = rule?.settings?.foreground;
+      if (typeof foreground !== 'string' || !/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(foreground)) continue;
+      const scopes = Array.isArray(rule.scope) ? rule.scope : [rule.scope];
+      for (const scopesEntry of scopes) {
+        if (typeof scopesEntry !== 'string') continue;
+        for (const selector of scopesEntry.split(',')) {
+          const scope = selector.trim();
+          if (!scope || !('markup.underline.link.markdown' === scope || 'markup.underline.link.markdown'.startsWith(`${scope}.`))) continue;
+          const score = scope.split('.').length;
+          if (score >= specificity) { color = foreground; specificity = score; }
+        }
+      }
+    }
+  }
+  return color;
+}
+
 export type TagHierarchy = Record<string, readonly string[]>;
 const naturalTagParent = (tag: string) => tag.includes('/') ? tag.slice(0, tag.lastIndexOf('/')) : '';
 function hierarchyParents(hierarchy: TagHierarchy): Map<string, string> {

@@ -20,6 +20,25 @@ const {
   escapeHtml,
 } = require("../dist/core");
 const tags = (text) => parseTags(text).map((t) => t.tag);
+test("Markdown URL colors use comma-separated and array TextMate scopes", () => {
+  const { markdownLinkColor } = require("../dist/core");
+  const customizations = {
+    textMateRules: [
+      { scope: "markup.underline.link.markdown, punctuation.definition.metadata.markdown", settings: { foreground: "#85C1E9" } },
+      { scope: "markup", settings: { foreground: "#112233" } },
+      { scope: "string", settings: { foreground: "#445566" } },
+    ],
+    "[Test Theme]": {
+      textMateRules: [{ scope: ["markup.underline.link.markdown"], settings: { foreground: "#abcdef" } }],
+    },
+  };
+  assert.equal(markdownLinkColor(customizations, "Other Theme"), "#85C1E9");
+  assert.equal(markdownLinkColor(customizations, "Test Theme"), "#abcdef");
+  customizations.textMateRules.push({ scope: "markup.underline.link.markdown", settings: { foreground: "#123456" } });
+  assert.equal(markdownLinkColor(customizations, "Other Theme"), "#123456");
+  assert.equal(markdownLinkColor(undefined, ""), undefined);
+  assert.equal(markdownLinkColor({ textMateRules: [{ scope: "markup.underline.link.markdown", settings: { foreground: "red}</style><script>" } }] }, ""), undefined);
+});
 test("日本語・日付・TODO・句読点・メール・エスケープ", () => {
   assert.deepEqual(
     tags("🔴 @TODO @バラード。 @2026/09/01\na@b.com \\@hidden @@no @a-b_c"),

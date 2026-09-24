@@ -24,6 +24,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelCount = 0,
     panelDisposeCount = 0,
     receiveMessage,
+    configurationChanged,
     shown;
   const documents = [];
   const editorStyles = [];
@@ -140,7 +141,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       }),
       onDidChangeTextDocument: disposable,
       onDidCloseTextDocument: disposable,
-      onDidChangeConfiguration: disposable,
+      onDidChangeConfiguration: (listener) => {
+        configurationChanged = listener;
+        return disposable();
+      },
     },
     window: {
       tabGroups: {
@@ -698,6 +702,21 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     await receiveMessage({ id: child.id, offset: 0 });
     assert.equal(shown.options.selection.start.offset, 0);
+    settings.set("tokenColorCustomizations", {
+      textMateRules: [{
+        scope: "markup.underline.link.markdown, punctuation.definition.metadata.markdown",
+        settings: { foreground: "#85C1E9" },
+      }],
+    });
+    await fs.writeFile(path.join(temp, ".fnote/音楽/曲/index.md"), "@TODO https://example.com/@user");
+    await run("refresh");
+    await run("filter", "TODO");
+    assert.match(html, /\.url\{color:#85C1E9\}/);
+    assert.match(html, /<span class="url">https:\/\/example.com\/@user<\/span>/);
+    settings.delete("tokenColorCustomizations");
+    configurationChanged({ affectsConfiguration: (key) => key === "editor.tokenColorCustomizations" });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.doesNotMatch(html, /\.url\{color:/);
     const beforeCancel = html;
     await run("search");
     assert.equal(html, beforeCancel);

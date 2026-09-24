@@ -4,7 +4,7 @@ import type { DropPosition } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { noteAppearance, tagAppearance, parseHeadings, parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
+import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
 
 function isMissing(error: unknown): boolean {
@@ -244,6 +244,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const styles = config().get<TagStyles>('tagStyles', {});
     // Only color-value characters are allowed inside the nonce-protected stylesheet.
     const safeColor = (value: string, fallback: string): string => /^[#a-zA-Z0-9(),.%\s+-]+$/.test(value) ? value : fallback;
+    const linkColor = markdownLinkColor(
+      vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
+      vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
+    );
+    const linkCss = linkColor ? `.url{color:${linkColor}}` : '';
     const classFor = (tag: string): string => {
       const style = styleFor(tag, styles);
       const color = safeColor(style.color || config().get<string>('tagColor', '#00BFFF'), '#00BFFF');
@@ -325,7 +330,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const nonce = crypto.randomBytes(16).toString('hex');
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
-    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}.url{color:var(--vscode-textLink-foreground)}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
+    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
   }
   function filter(tag: string) {
     activeTag = tag;
@@ -407,7 +412,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     watcher.onDidCreate(schedule), watcher.onDidDelete(schedule), watcher.onDidChange(schedule),
     vscode.workspace.onDidChangeTextDocument(e => { if (notes.some(n => file(n.id).toString() === e.document.uri.toString())) schedule(); }),
     vscode.workspace.onDidCloseTextDocument(schedule),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('fnote')) schedule(); }),
+    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('fnote') || e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) schedule(); }),
     vscode.window.onDidChangeVisibleTextEditors(decorate),
     vscode.window.onDidChangeActiveTextEditor(guard(async (editor: vscode.TextEditor | undefined) => {
       const n = notes.find(n => file(n.id).toString() === editor?.document.uri.toString());

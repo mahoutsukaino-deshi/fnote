@@ -62,7 +62,7 @@ To divide a single note into sections, use Markdown headings from `##` to `#####
 ### Common actions
 
 | Action                    | How                                                        |
-| ------------------------- | ---------------------------------------------------------- |
+|---------------------------|------------------------------------------------------------|
 | Add a top-level note      | Click **＋** in **Fnote - List**                           |
 | Add a child note          | Right-click the parent note → “Add Child Note”             |
 | Rename a note             | Select the note and press `F2`, or right-click → “Rename”  |
@@ -113,14 +113,12 @@ Write a date and time on the **same line** to total your work time through date 
 @2026/09/22 @1h Planned the next feature
 ```
 
-![Record dates and work time](media/screenshots/work-log.png)
-
 Expand `2026` → `09` → `21` in the tag list and select the day. This example shows **1h30m**. Select `09` for the monthly total or `2026` for the yearly total.
 
 ![View the daily work time total](media/screenshots/daily-total.png)
 
 | Format         | Meaning                                         |
-| -------------- | ----------------------------------------------- |
+|----------------|-------------------------------------------------|
 | `@2026/09/21`  | Date (four-digit year, two-digit month and day) |
 | `@30m`         | 30 minutes                                      |
 | `@1h`          | 1 hour                                          |
@@ -213,7 +211,7 @@ On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/
 ### Key settings
 
 | Setting                    | Default                               | Purpose                                          |
-| -------------------------- | ------------------------------------- | ------------------------------------------------ |
+|----------------------------|---------------------------------------|--------------------------------------------------|
 | `fnote.storagePath`        | `~/.fnote`                            | Note storage location                            |
 | `fnote.untaggedNoteMark`   | `$(note)`                             | Icon for notes with no eligible tag icon         |
 | `fnote.defaultTagMark`     | `$(circle-filled-compact)`            | Default icon for tags without an individual icon |
@@ -239,10 +237,9 @@ To back up your note content, copy the storage folder. Automatic synchronization
 ## Troubleshooting
 
 | Issue                                               | What to check                                                                                                    |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+|-----------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
 | A tag does not appear                               | Check that it uses the `@tag-name` format and is outside code. Refresh the list if needed.                       |
 | Notes disappear after changing the storage location | Check that you copied the notes to the new location and reloaded the window.                                     |
 | An unexpected icon appears                          | Check the order of `fnote.tagStyles` and `excludeFromNoteMark`. Date and time tags are excluded from note icons. |
 | Time is not totaled                                 | Include exactly one date tag on the same line and use a supported time format, such as `@30m`.                   |
-
-Report bugs and suggestions through [GitHub Issues](https://github.com/mahoutsukaino-deshi/fnote/issues). Include your VS Code and fnote versions and steps to reproduce the issue.
+s

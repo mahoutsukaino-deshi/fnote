@@ -14,6 +14,8 @@ Edit your notes in the familiar Markdown editor. Notes are saved as Markdown fil
 - **Time tracking**: Add dates and durations to review your work by day, month, or year.
 - **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
 
+In note text, `[[../旅行/]]` and `[](../旅行/)` link to `../旅行/index.md` relative to the current note in the editor. The trailing `/` is optional when the target is an existing directory: `[[../旅行]]` and `[](../旅行)` work too.
+
 ## Getting started
 
 Requires **VS Code 1.85 or later**. You do not need to install Node.js or Python to use the extension.

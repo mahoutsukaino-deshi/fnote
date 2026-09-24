@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
+import { parseNoteLinks } from './core';
 
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
@@ -22,6 +23,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const root = storagePath ? vscode.Uri.file(storagePath) : vscode.Uri.joinPath(context.globalStorageUri, 'notes');
   const uri = (id: string) => vscode.Uri.joinPath(root, ...id.split('/').filter(Boolean));
   const file = (id: string) => vscode.Uri.joinPath(uri(id), 'index.md');
+  context.subscriptions.push(vscode.languages.registerDocumentLinkProvider({ language: 'markdown', scheme: 'file' }, {
+    async provideDocumentLinks(document) {
+      const relative = path.relative(root.fsPath, document.uri.fsPath);
+      if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
+      const links = await Promise.all(parseNoteLinks(document.getText()).map(async link => {
+        let target: string;
+        try { target = decodeURIComponent(link.target); } catch { return []; }
+        const directory = vscode.Uri.joinPath(document.uri, '..', target);
+        if (!target.endsWith('/')) {
+          try {
+            const stat = await vscode.workspace.fs.stat(directory);
+            if (!(stat.type & vscode.FileType.Directory)) return [];
+          } catch { return []; }
+        }
+        const destination = vscode.Uri.joinPath(directory, 'index.md');
+        return [new vscode.DocumentLink(new vscode.Range(document.positionAt(link.start), document.positionAt(link.end)), destination)];
+      }));
+      return links.flat();
+    }
+  }));
   let notes: Note[] = [];
   let panel: vscode.WebviewPanel | undefined;
   let activeTag: string | undefined;

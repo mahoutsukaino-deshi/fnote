@@ -702,3 +702,13 @@ test("date設定で年に依存せず年・月・日の日付タグに共通ア�
     "$(calendar)",
   );
 });
+
+test("directory note links support wiki and Markdown syntax and ignore code and external links", () => {
+  const { parseNoteLinks } = require("../dist/core");
+  const text = "[[../旅行/]]\n[](../旅行/)\n[子](./子/)\n[空白](<../旅 行/>)";
+  assert.deepEqual(parseNoteLinks("[[../旅行]]\n[](../旅行)").map(link => link.target), ["../旅行", "../旅行"]);
+  const links = parseNoteLinks(text);
+  assert.deepEqual(links.map(link => link.target), ["../旅行/", "../旅行/", "./子/", "../旅 行/"]);
+  assert.deepEqual(links.map(link => text.slice(link.start, link.end)), ["../旅行/", "../旅行/", "./子/", "<../旅 行/>"]);
+  assert.deepEqual(parseNoteLinks("`[[../旅行/]]`\n```md\n[](../旅行/)\n```\n    [[../旅行/]]\n[](https://example.com/)\n[[//host/]]\n![](../旅行/)"), []);
+});

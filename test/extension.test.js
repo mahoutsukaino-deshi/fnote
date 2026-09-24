@@ -25,13 +25,23 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelDisposeCount = 0,
     receiveMessage,
     configurationChanged,
-    shown;
+    shown,
+    linkProvider;
   const documents = [];
   const editorStyles = [];
   const closeCalls = [];
   let closeResult = true;
   const settings = new Map([["defaultTagMark", "🏷️"]]);
   const api = {
+    languages: {
+      registerDocumentLinkProvider(selector, provider) {
+        linkProvider = provider;
+        return disposable();
+      },
+    },
+    DocumentLink: class {
+      constructor(range, target) { Object.assign(this, { range, target }); }
+    },
     Uri: {
       file: uri,
       joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)),
@@ -116,7 +126,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         readFile: (u) => fs.readFile(u.fsPath).catch(fileError),
         writeFile: (u, data) => fs.writeFile(u.fsPath, data),
         createDirectory: (u) => fs.mkdir(u.fsPath, { recursive: true }),
-        stat: (u) => fs.stat(u.fsPath).catch(fileError),
+        stat: async (u) => {
+          const stat = await fs.stat(u.fsPath).catch(fileError);
+          return { type: stat.isDirectory() ? 2 : 1 };
+        },
       },
       applyEdit: async (edit) => {
         for (const op of edit.ops) await op();
@@ -236,6 +249,32 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   try {
     const { activate } = require("../dist/extension");
     await activate(context);
+    const linkText = "[[../旅行/]]\n[](../旅行/)\n[旅行](../%E6%97%85%E8%A1%8C/)";
+    const linkDocument = {
+      uri: uri(path.join(temp, ".fnote/日記/index.md")),
+      getText: () => linkText,
+      positionAt: offset => ({ offset }),
+    };
+    const links = await linkProvider.provideDocumentLinks(linkDocument);
+    assert.equal(links.length, 3);
+    for (const link of links) {
+      assert.equal(link.target.fsPath, path.join(temp, ".fnote/旅行/index.md"));
+      assert.ok(linkText.slice(link.range.start.offset, link.range.end.offset).endsWith("/"));
+    }
+    assert.deepEqual(await linkProvider.provideDocumentLinks({ ...linkDocument, uri: uri(path.join(temp, "other/index.md")) }), []);
+    await fs.mkdir(path.join(temp, ".fnote/旅行"), { recursive: true });
+    await fs.writeFile(path.join(temp, ".fnote/旅行/index.md"), "# 旅行");
+    await fs.writeFile(path.join(temp, ".fnote/plain"), "ordinary file");
+    const slashless = await linkProvider.provideDocumentLinks({
+      ...linkDocument,
+      getText: () => "[[../旅行]]\n[](../旅行)\n[](../%E6%97%85%E8%A1%8C)\n[](../旅行/index.md)\n[[../plain]]\n[](../missing)\n[](../%invalid)",
+    });
+    assert.equal(slashless.length, 3);
+    for (const link of slashless) {
+      assert.equal(link.target.fsPath, path.join(temp, ".fnote/旅行/index.md"));
+    }
+    await fs.rm(path.join(temp, ".fnote/旅行"), { recursive: true });
+    await fs.unlink(path.join(temp, ".fnote/plain"));
     const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);
     const provider = views.get("fnote.notes").treeDataProvider;
     inputs.push("音楽");

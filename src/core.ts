@@ -1,5 +1,22 @@
 export interface TagMatch { tag: string; start: number; end: number }
 export interface TaggedNote { id: string; tags: TagMatch[] }
+
+// Find relative link candidates; the provider checks whether they name directories.
+export function parseNoteLinks(text: string): { target: string; start: number; end: number }[] {
+  const result: { target: string; start: number; end: number }[] = [];
+  const pattern = /(?<!!)(\[\[([^\]\r\n]+)\]\]|\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^\s()]+)\s*\))/g;
+  for (const match of maskCode(text).matchAll(pattern)) {
+    const preceding = text.slice(0, match.index).match(/\\+$/)?.[0].length ?? 0;
+    if (preceding % 2) continue;
+    const raw = match[2] ?? match[3];
+    const target = raw.startsWith('<') ? raw.slice(1, -1) : raw;
+    if (!target || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(target) || /[?#]/.test(target)) continue;
+    const destinationOffset = match[2] !== undefined ? 2 : match[0].indexOf('](') + 2;
+    const start = match.index + match[0].indexOf(raw, destinationOffset);
+    result.push({ target, start, end: start + raw.length });
+  }
+  return result;
+}
 export interface Note extends TaggedNote { parent: string; name: string; text: string }
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }

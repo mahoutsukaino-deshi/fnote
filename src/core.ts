@@ -1,5 +1,22 @@
 export interface TagMatch { tag: string; start: number; end: number }
 export interface TaggedNote { id: string; tags: TagMatch[] }
+
+// Find relative link candidates; the provider checks whether they name directories.
+export function parseNoteLinks(text: string): { target: string; start: number; end: number }[] {
+  const result: { target: string; start: number; end: number }[] = [];
+  const pattern = /(?<!!)(\[\[([^\]\r\n]+)\]\]|\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^\s()]+)\s*\))/g;
+  for (const match of maskCode(text).matchAll(pattern)) {
+    const preceding = text.slice(0, match.index).match(/\\+$/)?.[0].length ?? 0;
+    if (preceding % 2) continue;
+    const raw = match[2] ?? match[3];
+    const target = raw.startsWith('<') ? raw.slice(1, -1) : raw;
+    if (!target || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(target) || /[?#]/.test(target)) continue;
+    const destinationOffset = match[2] !== undefined ? 2 : match[0].indexOf('](') + 2;
+    const start = match.index + match[0].indexOf(raw, destinationOffset);
+    result.push({ target, start, end: start + raw.length });
+  }
+  return result;
+}
 export interface Note extends TaggedNote { parent: string; name: string; text: string }
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }
@@ -8,6 +25,35 @@ export interface TagStyle { excludeFromNoteMark?: boolean; mark?: string; markCo
 export interface TagStyleDefinition extends TagStyle { tag: string }
 export type TagStyles = Record<string, TagStyle> | readonly TagStyleDefinition[];
 export interface TagNode { label: string; tag: string; children: Map<string, TagNode> }
+
+// Webviews do not inherit the editor's TextMate token colors.
+export function markdownLinkColor(customizations: unknown, theme: string): string | undefined {
+  if (!customizations || typeof customizations !== 'object') return undefined;
+  const configuration = customizations as Record<string, unknown>;
+  const themed = configuration[`[${theme}]`];
+  let color: string | undefined;
+  let specificity = -1;
+  for (const section of [configuration, themed]) {
+    if (!section || typeof section !== 'object') continue;
+    const rules = (section as { textMateRules?: unknown }).textMateRules;
+    if (!Array.isArray(rules)) continue;
+    for (const rule of rules) {
+      const foreground = rule?.settings?.foreground;
+      if (typeof foreground !== 'string' || !/^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i.test(foreground)) continue;
+      const scopes = Array.isArray(rule.scope) ? rule.scope : [rule.scope];
+      for (const scopesEntry of scopes) {
+        if (typeof scopesEntry !== 'string') continue;
+        for (const selector of scopesEntry.split(',')) {
+          const scope = selector.trim();
+          if (!scope || !('markup.underline.link.markdown' === scope || 'markup.underline.link.markdown'.startsWith(`${scope}.`))) continue;
+          const score = scope.split('.').length;
+          if (score >= specificity) { color = foreground; specificity = score; }
+        }
+      }
+    }
+  }
+  return color;
+}
 
 export type TagHierarchy = Record<string, readonly string[]>;
 const naturalTagParent = (tag: string) => tag.includes('/') ? tag.slice(0, tag.lastIndexOf('/')) : '';

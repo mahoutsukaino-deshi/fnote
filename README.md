@@ -242,4 +242,3 @@ To back up your note content, copy the storage folder. Automatic synchronization
 | Notes disappear after changing the storage location | Check that you copied the notes to the new location and reloaded the window.                                     |
 | An unexpected icon appears                          | Check the order of `fnote.tagStyles` and `excludeFromNoteMark`. Date and time tags are excluded from note icons. |
 | Time is not totaled                                 | Include exactly one date tag on the same line and use a supported time format, such as `@30m`.                   |
-s

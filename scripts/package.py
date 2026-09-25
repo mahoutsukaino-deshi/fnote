@@ -17,6 +17,6 @@ output = root / f'{name}-{version}.vsix'
 with ZipFile(output, 'w', ZIP_DEFLATED) as archive:
     archive.writestr('extension.vsixmanifest', manifest)
     archive.writestr('[Content_Types].xml', content_types)
-    for relative in ['package.json', 'README.md', '画面イメージ.png', 'dist/core.js', 'dist/extension.js', 'dist/notesView.js', 'media/notes.js', 'media/icon.png', *[str(file.relative_to(root)) for file in sorted((root / 'media/codicons').iterdir()) if file.is_file()]]:
+    for relative in ['package.json', 'README.md', 'CHANGELOG.md', 'CHANGELOG.ja.md', '画面イメージ.png', 'dist/core.js', 'dist/extension.js', 'dist/linkMark.js', 'dist/notesView.js', 'media/notes.js', 'media/icon.png', *[str(file.relative_to(root)) for file in sorted((root / 'media/codicons').iterdir()) if file.is_file()]]:
         archive.write(root / relative, f'extension/{relative}')
 print(output)

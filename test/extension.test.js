@@ -25,6 +25,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelDisposeCount = 0,
     receiveMessage,
     configurationChanged,
+    selectionChanged,
     shown,
     linkProvider;
   const documents = [];
@@ -42,7 +43,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     DocumentLink: class {
       constructor(range, target) { Object.assign(this, { range, target }); }
     },
+    ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: {
+      parse: value => ({ toString: () => value }),
       file: uri,
       joinPath: (base, ...parts) => uri(path.join(base.fsPath, ...parts)),
     },
@@ -60,6 +63,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       }
     },
     Range: class {
+      intersection(other) {
+        return this.start.offset <= other.end.offset && this.end.offset >= other.start.offset ? this : undefined;
+      }
       constructor(start, end) {
         Object.assign(this, { start, end });
       }
@@ -197,6 +203,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         shown = { doc, options };
       },
       onDidChangeVisibleTextEditors: disposable,
+      onDidChangeTextEditorSelection: listener => { selectionChanged = listener; return disposable(); },
       onDidChangeActiveTextEditor: disposable,
       createWebviewPanel: () => {
         panelCount++;
@@ -257,9 +264,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     };
     const links = await linkProvider.provideDocumentLinks(linkDocument);
     assert.equal(links.length, 3);
+    assert.deepEqual(links.map(link => linkText.slice(link.range.start.offset, link.range.end.offset)), ["../旅行/", "../旅行/", "旅行"]);
     for (const link of links) {
       assert.equal(link.target.fsPath, path.join(temp, ".fnote/旅行/index.md"));
-      assert.ok(linkText.slice(link.range.start.offset, link.range.end.offset).endsWith("/"));
+
     }
     assert.deepEqual(await linkProvider.provideDocumentLinks({ ...linkDocument, uri: uri(path.join(temp, "other/index.md")) }), []);
     await fs.mkdir(path.join(temp, ".fnote/旅行"), { recursive: true });
@@ -269,10 +277,16 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       ...linkDocument,
       getText: () => "[[../旅行]]\n[](../旅行)\n[](../%E6%97%85%E8%A1%8C)\n[](../旅行/index.md)\n[[../plain]]\n[](../missing)\n[](../%invalid)",
     });
-    assert.equal(slashless.length, 3);
-    for (const link of slashless) {
+    assert.equal(slashless.length, 5);
+    for (const link of slashless.slice(0, 4)) {
       assert.equal(link.target.fsPath, path.join(temp, ".fnote/旅行/index.md"));
     }
+    assert.equal(slashless[4].target.fsPath, path.join(temp, '.fnote/plain'));
+    const namedFileText = '[旅行予定](../旅行/index.md)\n[旅行予定](../%E6%97%85%E8%A1%8C/index.md)\n[[../旅行/index.md]]\n[不存在](../旅行/missing.md)';
+    const namedFiles = await linkProvider.provideDocumentLinks({ ...linkDocument, getText: () => namedFileText });
+    assert.equal(namedFiles.length, 3);
+    for (const link of namedFiles) assert.equal(link.target.fsPath, path.join(temp, '.fnote/旅行/index.md'));
+    assert.deepEqual(namedFiles.map(link => namedFileText.slice(link.range.start.offset, link.range.end.offset)), ['旅行予定', '旅行予定', '../旅行/index.md']);
     await fs.rm(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.unlink(path.join(temp, ".fnote/plain"));
     const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);
@@ -751,11 +765,17 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run("refresh");
     await run("filter", "TODO");
     assert.match(html, /\.url\{color:#85C1E9\}/);
-    assert.match(html, /<span class="url">https:\/\/example.com\/@user<\/span>/);
+    assert.match(html, /<span class="url"><i class="codicon codicon-link-external" aria-hidden="true"><\/i> https:\/\/example.com\/@user<\/span>/);
     settings.delete("tokenColorCustomizations");
     configurationChanged({ affectsConfiguration: (key) => key === "editor.tokenColorCustomizations" });
     await new Promise((resolve) => setTimeout(resolve, 250));
-    assert.doesNotMatch(html, /\.url\{color:/);
+    assert.match(html, /\.url\{color:var\(--vscode-textLink-foreground\)\}/);
+    await fs.writeFile(path.join(temp, ".fnote/音楽/曲/index.md"), '@TODO [](http://www.yahoo.co.jp) <http://www.yahoo.co.jp> [[TRIP]] [名前](https://example.com)');
+    await run("refresh");
+    assert.equal((html.match(/class="codicon codicon-link-external"/g) ?? []).length, 4);
+    assert.match(html, /<\/i> TRIP<\/span>/);
+    assert.doesNotMatch(html, /\[\[TRIP\]\]|\[名前\]/);
+    assert.match(html, /<\/i> 名前<\/span>/);
     const beforeCancel = html;
     await run("search");
     assert.equal(html, beforeCancel);
@@ -816,7 +836,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       { tag: "2026", color: "#FFFFFF", backgroundColor: "" },
     ]);
     settings.set("tagBackgroundColor", "#123456");
-    const editorText = "@TODO @2026/09/12 @OTHER";
+    const editorText = "@TODO @2026/09/12 @OTHER [](https://example.com) <https://example.org> [[TRIP]] [旅行予定](旅行)";
     api.window.visibleTextEditors = [
       {
         document: {
@@ -824,6 +844,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
           getText: () => editorText,
           positionAt: (offset) => ({ offset }),
         },
+        selections: [],
         setDecorations: (decoration, ranges) =>
           editorStyles.push({ ...decoration.options, ranges }),
       },
@@ -847,6 +868,44 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.ok(
       editorStyles.some((style) => style.backgroundColor === "#123456"),
     );
+    const iconStyle = editorStyles.find(style => style.before?.textDecoration?.includes("mask:"));
+    assert.equal(iconStyle.ranges.length, 4);
+    assert.deepEqual(iconStyle.ranges.map(range => editorText.slice(range.start.offset, range.end.offset)), ["https://example.com", "https://example.org", "TRIP", "旅行予定"]);
+    editorStyles.length = 0;
+    api.window.visibleTextEditors[0].selections = [{ start: { offset: editorText.indexOf("TRIP") }, end: { offset: editorText.indexOf("TRIP") } }];
+    selectionChanged();
+    assert.equal(editorStyles.find(style => style.before?.textDecoration?.includes("mask:")).ranges.length, 3);
+    await fs.writeFile(path.join(temp, '.fnote/音楽/曲/index.md'), '@TODO [](https://example.com)');
+    for (const mark of ['$(globe)', '🔗', '', '$(unknown-fnote-icon)', '<b>']) {
+      settings.set('linkMark', mark);
+      editorStyles.length = 0;
+      configurationChanged({ affectsConfiguration: key => key === 'fnote' });
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const attachment = editorStyles.find(style => style.before)?.before;
+      if (mark === '') {
+        assert.equal(attachment, undefined);
+        assert.doesNotMatch(html, /codicon-link-external/);
+      } else if (mark.startsWith('$(')) {
+        assert.match(attachment.textDecoration, /mask:url\("data:image\/svg\+xml;base64,/);
+        assert.match(attachment.textDecoration, /vertical-align:-0.35em/);
+        assert.equal(attachment.color.id, 'textLink.foreground');
+        assert.match(html, new RegExp(`codicon-${mark === '$(globe)' ? 'globe' : 'link-external'}`));
+      } else {
+        assert.equal(attachment.contentText, mark);
+        assert.ok(html.includes(mark === '<b>' ? '&lt;b&gt;' : mark));
+      }
+    }
+    settings.set('linkMark', '$(link-external)');
+    settings.set('tokenColorCustomizations', { textMateRules: [{ scope: 'markup.underline.link.markdown', settings: { foreground: '#dc9977' } }] });
+    editorStyles.length = 0;
+    await run('refresh');
+    const coloredLink = editorStyles.find(style => style.before?.textDecoration?.includes('mask:'));
+    assert.equal(coloredLink.color, '#dc9977');
+    assert.equal(coloredLink.before.color, coloredLink.color);
+    assert.match(coloredLink.before.textDecoration, /background-color:currentColor/);
+    assert.match(html, /\.url\{color:#dc9977\}/);
+    settings.delete('tokenColorCustomizations');
+    settings.delete('linkMark');
     api.window.visibleTextEditors = [];
     settings.delete("tagBackgroundColor");
     settings.delete("tagStyles");

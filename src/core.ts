@@ -1,7 +1,37 @@
 export interface TagMatch { tag: string; start: number; end: number }
 export interface TaggedNote { id: string; tags: TagMatch[] }
 
-// Find relative link candidates; the provider checks whether they name directories.
+export interface DisplayLink { target: string; label: string; start: number; end: number; targetStart: number; targetEnd: number; displayStart: number; displayEnd: number }
+
+// Preserve source offsets so editor decorations never change the stored Markdown.
+export function parseDisplayLinks(text: string): DisplayLink[] {
+  const result: DisplayLink[] = [];
+  const masked = maskCode(text);
+  const pattern = /(!?\[\[([^\]\r\n]+)\]\]|!?\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|(?:[^\s()]+|\([^()\r\n]*\))+)\s*(?:"[^"\r\n]*"\s*)?\)|<([a-z][a-z\d+.-]*:[^<>\s]+)>)/gi;
+  const occupied: { start: number; end: number }[] = [];
+  for (const match of masked.matchAll(pattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    occupied.push({ start, end });
+    if (match[0].startsWith('!') || (text.slice(0, start).match(/\\+$/)?.[0].length ?? 0) % 2) continue;
+    const raw = match[2] ?? match[3] ?? match[4];
+    const wrapped = raw.startsWith('<');
+    const target = wrapped ? raw.slice(1, -1) : raw;
+    const from = match[2] !== undefined ? 2 : match[3] !== undefined ? match[0].indexOf('](') + 2 : 1;
+    const targetStart = start + match[0].indexOf(raw, from) + (wrapped ? 1 : 0);
+    const name = match[3] !== undefined ? match[0].slice(1, match[0].indexOf('](')) : '';
+    const label = name || target;
+    const displayStart = name ? start + 1 : targetStart;
+    result.push({ target, label, start, end, targetStart, targetEnd: targetStart + target.length, displayStart, displayEnd: displayStart + label.length });
+  }
+  for (const url of parseUrls(text)) {
+    if (occupied.some(span => url.start < span.end && url.end > span.start)) continue;
+    result.push({ ...url, target: text.slice(url.start, url.end), label: text.slice(url.start, url.end), targetStart: url.start, targetEnd: url.end, displayStart: url.start, displayEnd: url.end });
+  }
+  return result.sort((a, b) => a.start - b.start);
+}
+
+// Find relative link candidates; the provider resolves files and note directories.
 export function parseNoteLinks(text: string): { target: string; start: number; end: number }[] {
   const result: { target: string; start: number; end: number }[] = [];
   const pattern = /(?<!!)(\[\[([^\]\r\n]+)\]\]|\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^\s()]+)\s*\))/g;
@@ -13,7 +43,8 @@ export function parseNoteLinks(text: string): { target: string; start: number; e
     if (!target || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(target) || /[?#]/.test(target)) continue;
     const destinationOffset = match[2] !== undefined ? 2 : match[0].indexOf('](') + 2;
     const start = match.index + match[0].indexOf(raw, destinationOffset);
-    result.push({ target, start, end: start + raw.length });
+    const name = match[3] !== undefined ? match[0].slice(1, match[0].indexOf('](')) : '';
+    result.push({ target, start: name ? match.index + 1 : start, end: name ? match.index + 1 + name.length : start + raw.length });
   }
   return result;
 }

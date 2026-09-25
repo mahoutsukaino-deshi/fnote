@@ -4,9 +4,10 @@ import type { DropPosition } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseUrls, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
+import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
-import { parseNoteLinks } from './core';
+import { parseNoteLinks, parseDisplayLinks } from './core';
+import { linkMark, linkIconUri } from './linkMark';
 
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
@@ -30,14 +31,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const links = await Promise.all(parseNoteLinks(document.getText()).map(async link => {
         let target: string;
         try { target = decodeURIComponent(link.target); } catch { return []; }
-        const directory = vscode.Uri.joinPath(document.uri, '..', target);
+        const resolved = vscode.Uri.joinPath(document.uri, '..', target);
+        let destination = vscode.Uri.joinPath(resolved, 'index.md');
         if (!target.endsWith('/')) {
           try {
-            const stat = await vscode.workspace.fs.stat(directory);
-            if (!(stat.type & vscode.FileType.Directory)) return [];
+            const stat = await vscode.workspace.fs.stat(resolved);
+            if (stat.type & vscode.FileType.File) destination = resolved;
+            else if (!(stat.type & vscode.FileType.Directory)) return [];
           } catch { return []; }
         }
-        const destination = vscode.Uri.joinPath(directory, 'index.md');
         return [new vscode.DocumentLink(new vscode.Range(document.positionAt(link.start), document.positionAt(link.end)), destination)];
       }));
       return links.flat();
@@ -171,6 +173,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     for (const decoration of decorations) decoration.dispose();
     decorations = [];
     const styles = config().get<TagStyles>('tagStyles', {});
+    const linkColor = markdownLinkColor(
+      vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
+      vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
+    ) ?? new vscode.ThemeColor('textLink.foreground');
     for (const editor of vscode.window.visibleTextEditors) {
       if (!notes.some(n => file(n.id).toString() === editor.document.uri.toString())) continue;
       const groups = new Map<string, { color: string; backgroundColor: string; ranges: vscode.Range[] }>();
@@ -185,6 +191,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       for (const { color, backgroundColor, ranges } of groups.values()) {
         const decoration = vscode.window.createTextEditorDecorationType({ color, backgroundColor: backgroundColor || undefined });
         decorations.push(decoration); editor.setDecorations(decoration, ranges);
+      }
+      const hidden: vscode.Range[] = [];
+      const targets: vscode.Range[] = [];
+      for (const link of parseDisplayLinks(editor.document.getText())) {
+        const range = new vscode.Range(editor.document.positionAt(link.start), editor.document.positionAt(link.end));
+        if (editor.selections.some(selection => range.intersection(selection))) continue;
+        targets.push(new vscode.Range(editor.document.positionAt(link.displayStart), editor.document.positionAt(link.displayEnd)));
+        if (link.start < link.displayStart) hidden.push(new vscode.Range(range.start, editor.document.positionAt(link.displayStart)));
+        if (link.displayEnd < link.end) hidden.push(new vscode.Range(editor.document.positionAt(link.displayEnd), range.end));
+      }
+      const mark = linkMark(config().get<string>('linkMark', '$(link-external)'));
+      if (targets.length) {
+        const before: vscode.ThemableDecorationAttachmentRenderOptions | undefined = mark.icon
+          ? {
+            contentText: '\u00a0', color: linkColor, width: '1em', height: '1em', margin: '0 0.25em 0 0',
+            textDecoration: `none; display:inline-block; vertical-align:-0.35em; background-color:currentColor; mask:url("${linkIconUri(mark.icon)}") center / contain no-repeat`
+          }
+          : mark.text ? { contentText: mark.text, color: linkColor, margin: '0 0.25em 0 0' } : undefined;
+        const decoration = vscode.window.createTextEditorDecorationType({
+          color: linkColor, before
+        });
+        decorations.push(decoration); editor.setDecorations(decoration, targets);
+      }
+      if (hidden.length) {
+        const decoration = vscode.window.createTextEditorDecorationType({ textDecoration: 'none; display: none' });
+        decorations.push(decoration); editor.setDecorations(decoration, hidden);
       }
     }
   }
@@ -269,7 +301,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
       vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
     );
-    const linkCss = linkColor ? `.url{color:${linkColor}}` : '';
+    const linkCss = `.url{color:${linkColor ?? 'var(--vscode-textLink-foreground)'}}button .url .codicon{color:inherit;font-size:1em;vertical-align:-0.15em;position:static}`;
+    const mark = linkMark(config().get<string>('linkMark', '$(link-external)'));
+    const linkMarkHtml = mark.icon ? `<i class="codicon codicon-${mark.icon}" aria-hidden="true"></i> ` : mark.text ? `${h(mark.text)} ` : '';
     const classFor = (tag: string): string => {
       const style = styleFor(tag, styles);
       const color = safeColor(style.color || config().get<string>('tagColor', '#00BFFF'), '#00BFFF');
@@ -287,12 +321,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const relative = originalLine.indexOf(text);
       if (relative < 0) return h(text);
       const offset = start + relative;
-      const urls = parseUrls(note.text);
+      const urls = parseDisplayLinks(note.text);
       const tokens = [...note.tags.filter(tag => !urls.some(url => tag.start < url.end && tag.end > url.start)),
         ...urls.map(url => ({ ...url, tag: ':url' }))].sort((a, b) => a.start - b.start);
       const ranges = tokens.filter(tag => tag.start >= offset && tag.end <= offset + text.length)
         .map(tag => ({ ...tag, start: tag.start - offset, end: tag.end - offset }));
-      return renderTagText(text, ranges, tag => tag === ':url' ? 'url' : classFor(tag));
+      let html = '', cursor = 0;
+      for (const token of ranges) {
+        html += h(text.slice(cursor, token.start));
+        if (token.tag === ':url') {
+          const link = urls.find(link => link.start === token.start + offset)!;
+          html += `<span class="url">${linkMarkHtml}${h(link.label)}</span>`;
+        } else html += `<span class="${classFor(token.tag)}">${h(text.slice(token.start, token.end))}</span>`;
+        cursor = token.end;
+      }
+      return html + h(text.slice(cursor));
     };
     const contentBranch = (id: string, lines: ContentMatch[]): string => lines.length ? `<ul>${lines.map(line => `<li><button data-id="${h(id)}" data-offset="${line.start}" class="content">${fragment(id, line.start, line.text)}</button></li>`).join('')}</ul>` : '';
     const timeLabel = (minutes: number | undefined): string =>
@@ -435,6 +478,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.workspace.onDidCloseTextDocument(schedule),
     vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('fnote') || e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) schedule(); }),
     vscode.window.onDidChangeVisibleTextEditors(decorate),
+    vscode.window.onDidChangeTextEditorSelection(decorate),
     vscode.window.onDidChangeActiveTextEditor(guard(async (editor: vscode.TextEditor | undefined) => {
       const n = notes.find(n => file(n.id).toString() === editor?.document.uri.toString());
       if (n) await tree.reveal(n);

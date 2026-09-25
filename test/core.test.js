@@ -20,6 +20,20 @@ const {
   escapeHtml,
 } = require("../dist/core");
 const tags = (text) => parseTags(text).map((t) => t.tag);
+test("link display preserves destinations and source ranges across supported syntax", () => {
+  const { parseDisplayLinks } = require('../dist/core');
+  const text = '[](http://www.yahoo.co.jp) <http://www.yahoo.co.jp> [[TRIP]] [Name](https://example.com/a(b)) https://example.org [Space](<../my trip/>)';
+  const links = parseDisplayLinks(text);
+  assert.deepEqual(links.map(link => link.target), ['http://www.yahoo.co.jp', 'http://www.yahoo.co.jp', 'TRIP', 'https://example.com/a(b)', 'https://example.org', '../my trip/']);
+  for (const link of links) assert.equal(text.slice(link.targetStart, link.targetEnd), link.target);
+  assert.deepEqual(links.map(link => link.label), ['http://www.yahoo.co.jp', 'http://www.yahoo.co.jp', 'TRIP', 'Name', 'https://example.org', 'Space']);
+  for (const link of links) assert.equal(text.slice(link.displayStart, link.displayEnd), link.label);
+  const [named] = parseDisplayLinks('[旅行予定](旅行)');
+  assert.equal(named.label, '旅行予定');
+  assert.equal(named.target, '旅行');
+  assert.equal(text.slice(links[0].start, links[0].end), '[](http://www.yahoo.co.jp)');
+  assert.deepEqual(parseDisplayLinks('`[](https://example.com)`\n```md\n[[TRIP]]\n```\n![image](https://example.org/a.png)\n\\[[TRIP]]'), []);
+});
 test("Markdown URL colors use comma-separated and array TextMate scopes", () => {
   const { markdownLinkColor } = require("../dist/core");
   const customizations = {
@@ -709,6 +723,6 @@ test("directory note links support wiki and Markdown syntax and ignore code and 
   assert.deepEqual(parseNoteLinks("[[../旅行]]\n[](../旅行)").map(link => link.target), ["../旅行", "../旅行"]);
   const links = parseNoteLinks(text);
   assert.deepEqual(links.map(link => link.target), ["../旅行/", "../旅行/", "./子/", "../旅 行/"]);
-  assert.deepEqual(links.map(link => text.slice(link.start, link.end)), ["../旅行/", "../旅行/", "./子/", "<../旅 行/>"]);
+  assert.deepEqual(links.map(link => text.slice(link.start, link.end)), ["../旅行/", "../旅行/", "子", "空白"]);
   assert.deepEqual(parseNoteLinks("`[[../旅行/]]`\n```md\n[](../旅行/)\n```\n    [[../旅行/]]\n[](https://example.com/)\n[[//host/]]\n![](../旅行/)"), []);
 });

@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "maoren",
   "engines": {
     "vscode": "^1.85.0"
@@ -177,6 +177,11 @@
           "type": "string",
           "default": "$(circle-filled-compact)",
           "description": "Default tag icon. Use a Codicon such as $(circle-filled-compact), text, or an emoji. An empty string hides the icon."
+        },
+        "fnote.linkMark": {
+          "type": "string",
+          "default": "$(link-external)",
+          "description": "Link icon in the note editor and tag/search results. Use a bundled Codicon such as $(link-external) or $(globe), text, or an emoji. An empty string hides the icon. Unknown Codicon names fall back to link-external."
         },
         "fnote.tagColor": {
           "type": "string",

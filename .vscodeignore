@@ -2,8 +2,11 @@
 !package.json
 !README.md
 !README.ja.md
+!CHANGELOG.md
+!CHANGELOG.ja.md
 !dist/core.js
 !dist/extension.js
+!dist/linkMark.js
 !dist/notesView.js
 !media/notes.js
 !media/icon.png

@@ -2,6 +2,8 @@
 
 [日本語](README.ja.md)
 
+[Release notes](CHANGELOG.md)
+
 **Write in Markdown. Organize in a hierarchy. Find with tags.**
 
 fnote is a VS Code extension for managing notes and work logs. Organize project notes in a hierarchy and use tags such as `@TODO` and dates to find the information you need across multiple notes.
@@ -15,6 +17,12 @@ Edit your notes in the familiar Markdown editor. Notes are saved as Markdown fil
 - **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
 
 In note text, "[[../TRIP/]]" and "[](../TRIP/)" link to "../TRIP/index.md" relative to the current note in the editor. The trailing "/" is optional when the target is an existing directory: "[[../TRIP]]" and "[](../TRIP)" work too.
+
+The note editor and tag/search results display links as a Codicons `link-external` icon followed by the destination. Supported forms include `[](https://example.com)`, `<https://example.com>`, `[[TRIP]]`, `[Name](https://example.com)`, and bare URLs. Named links such as `[Travel plans](Travel)` display the icon followed by the label; links with an empty label display the destination. Code and image syntax are excluded. Move the cursor or selection onto a link in the editor to reveal and edit its original syntax; stored Markdown is unchanged. `[[TRIP]]` points to `TRIP/index.md` relative to the current note when that directory exists. Clicking a tag/search result still opens the corresponding location in the source note.
+
+Set `fnote.linkMark` to customize the link icon in both views. The default is `"$(link-external)"`; examples include `"fnote.linkMark": "$(globe)"` or `"fnote.linkMark": "🔗"`. An empty string hides the icon. Codicon names absent from the bundled set fall back to the default icon.
+
+Relative links can also include a filename, such as `[Travel plans](../Travel/index.md)`. Existing files open directly; directory links open the `index.md` inside them.
 
 ## Getting started
 

@@ -16,13 +16,13 @@ Edit your notes in the familiar Markdown editor. Notes are saved as Markdown fil
 - **Time tracking**: Add dates and durations to review your work by day, month, or year.
 - **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
 
-In note text, "[[../TRIP/]]" and "[](../TRIP/)" link to "../TRIP/index.md" relative to the current note in the editor. The trailing "/" is optional when the target is an existing directory: "[[../TRIP]]" and "[](../TRIP)" work too.
+In note text, `[[../TRIP/]]` and <code>&#91;&#93;(../TRIP/)</code> link to `../TRIP/index.md` relative to the current note in the editor. The trailing `/` is optional when the target is an existing directory: `[[../TRIP]]` and <code>&#91;&#93;(../TRIP)</code> work too.
 
-The note editor and tag/search results display links as a Codicons `link-external` icon followed by the destination. Supported forms include `[](https://example.com)`, `<https://example.com>`, `[[TRIP]]`, `[Name](https://example.com)`, and bare URLs. Named links such as `[Travel plans](Travel)` display the icon followed by the label; links with an empty label display the destination. Code and image syntax are excluded. Move the cursor or selection onto a link in the editor to reveal and edit its original syntax; stored Markdown is unchanged. `[[TRIP]]` points to `TRIP/index.md` relative to the current note when that directory exists. Clicking a tag/search result still opens the corresponding location in the source note.
+The note editor and tag/search results display links as a Codicons `link-external` icon followed by the destination. Supported forms include `[](https://example.com)`, `<https://example.com>`, `[[TRIP]]`, `[Name](https://example.com)`, and bare URLs. Named links such as <code>&#91;Travel plans&#93;(Travel)</code> display the icon followed by the label; links with an empty label display the destination. Code and image syntax are excluded. Move the cursor or selection onto a link in the editor to reveal and edit its original syntax; stored Markdown is unchanged. `[[TRIP]]` points to `TRIP/index.md` relative to the current note when that directory exists. Clicking a tag/search result still opens the corresponding location in the source note.
 
 Set `fnote.linkMark` to customize the link icon in both views. The default is `"$(link-external)"`; examples include `"fnote.linkMark": "$(globe)"` or `"fnote.linkMark": "🔗"`. An empty string hides the icon. Codicon names absent from the bundled set fall back to the default icon.
 
-Relative links can also include a filename, such as `[Travel plans](../Travel/index.md)`. Existing files open directly; directory links open the `index.md` inside them.
+Relative links can also include a filename, such as <code>&#91;Travel plans&#93;(../Travel/index.md)</code>. Existing files open directly; directory links open the `index.md` inside them.
 
 ## Getting started
 

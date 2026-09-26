@@ -7,22 +7,73 @@ export interface DisplayLink { target: string; label: string; start: number; end
 export function parseDisplayLinks(text: string): DisplayLink[] {
   const result: DisplayLink[] = [];
   const masked = maskCode(text);
-  const pattern = /(!?\[\[([^\]\r\n]+)\]\]|!?\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|(?:[^\s()]+|\([^()\r\n]*\))+)\s*(?:"[^"\r\n]*"\s*)?\)|<([a-z][a-z\d+.-]*:[^<>\s]+)>)/gi;
   const occupied: { start: number; end: number }[] = [];
-  for (const match of masked.matchAll(pattern)) {
-    const start = match.index;
-    const end = start + match[0].length;
+  const escaped = new Uint8Array(masked.length);
+  let slashRun = 0;
+  for (let i = 0; i < masked.length; i++) {
+    escaped[i] = slashRun % 2;
+    slashRun = text[i] === '\\' ? slashRun + 1 : 0;
+  }
+  const add = (start: number, end: number, targetStart: number, target: string, label: string, displayStart: number) => {
     occupied.push({ start, end });
-    if (match[0].startsWith('!') || (text.slice(0, start).match(/\\+$/)?.[0].length ?? 0) % 2) continue;
-    const raw = match[2] ?? match[3] ?? match[4];
-    const wrapped = raw.startsWith('<');
-    const target = wrapped ? raw.slice(1, -1) : raw;
-    const from = match[2] !== undefined ? 2 : match[3] !== undefined ? match[0].indexOf('](') + 2 : 1;
-    const targetStart = start + match[0].indexOf(raw, from) + (wrapped ? 1 : 0);
-    const name = match[3] !== undefined ? match[0].slice(1, match[0].indexOf('](')) : '';
-    const label = name || target;
-    const displayStart = name ? start + 1 : targetStart;
     result.push({ target, label, start, end, targetStart, targetEnd: targetStart + target.length, displayStart, displayEnd: displayStart + label.length });
+  };
+  // Scan explicitly so malformed links during editing cannot trigger regexp backtracking.
+  for (let i = 0; i < masked.length; i++) {
+    if (masked[i] === '!' || escaped[i]) continue;
+    if (masked.startsWith('[[', i)) {
+      const close = masked.indexOf(']]', i + 2);
+      if (close > i + 2 && !masked.slice(i + 2, close).includes('\n')) {
+        const target = text.slice(i + 2, close);
+        add(i, close + 2, i + 2, target, target, i + 2);
+        i = close + 1;
+      }
+      continue;
+    }
+    if (masked[i] === '[') {
+      const bracket = masked.indexOf('](', i + 1);
+      if (bracket < 0 || masked.slice(i + 1, bracket).includes('\n')) continue;
+      let cursor = bracket + 2;
+      while (cursor < masked.length && /[ \t]/.test(masked[cursor])) cursor++;
+      const targetStart = cursor + (masked[cursor] === '<' ? 1 : 0);
+      let targetEnd = cursor;
+      if (masked[cursor] === '<') {
+        const close = masked.indexOf('>', cursor + 1);
+        if (close < 0) continue;
+        targetEnd = close;
+        cursor = close + 1;
+      } else {
+        let depth = 0;
+        while (cursor < masked.length && !/[ \t\r\n)]/.test(masked[cursor])) {
+          if (masked[cursor] === '(') depth++;
+          cursor++;
+        }
+        while (depth > 0 && masked[cursor] === ')') { depth--; cursor++; }
+        targetEnd = cursor;
+      }
+      if (targetEnd <= targetStart) continue;
+      while (cursor < masked.length && /[ \t]/.test(masked[cursor])) cursor++;
+      if (masked[cursor] === '"') {
+        const titleEnd = masked.indexOf('"', cursor + 1);
+        if (titleEnd < 0) continue;
+        cursor = titleEnd + 1;
+        while (cursor < masked.length && /[ \t]/.test(masked[cursor])) cursor++;
+      }
+      if (masked[cursor] !== ')') continue;
+      const target = text.slice(targetStart, targetEnd);
+      const label = text.slice(i + 1, bracket);
+      if (i > 0 && masked[i - 1] === '!') occupied.push({ start: i - 1, end: cursor + 1 });
+      else add(i, cursor + 1, targetStart, target, label || target, label ? i + 1 : targetStart);
+      i = cursor;
+      continue;
+    }
+    if (masked[i] === '<') {
+      const close = masked.indexOf('>', i + 1);
+      if (close < 0) continue;
+      const target = text.slice(i + 1, close);
+      if (/^[a-z][a-z\d+.-]*:[^<>\s]+$/i.test(target)) add(i, close + 1, i + 1, target, target, i + 1);
+      i = close;
+    }
   }
   for (const url of parseUrls(text)) {
     if (occupied.some(span => url.start < span.end && url.end > span.start)) continue;
@@ -31,8 +82,8 @@ export function parseDisplayLinks(text: string): DisplayLink[] {
   return result.sort((a, b) => a.start - b.start);
 }
 
-// Find relative link candidates; the provider resolves files and note directories.
-export function parseNoteLinks(text: string): { target: string; start: number; end: number }[] {
+// Find link candidates; the provider resolves relative files and note directories.
+export function parseNoteLinks(text: string, includeExternal = false): { target: string; start: number; end: number }[] {
   const result: { target: string; start: number; end: number }[] = [];
   const pattern = /(?<!!)(\[\[([^\]\r\n]+)\]\]|\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^\s()]+)\s*\))/g;
   for (const match of maskCode(text).matchAll(pattern)) {
@@ -40,7 +91,8 @@ export function parseNoteLinks(text: string): { target: string; start: number; e
     if (preceding % 2) continue;
     const raw = match[2] ?? match[3];
     const target = raw.startsWith('<') ? raw.slice(1, -1) : raw;
-    if (!target || /^(?:[a-z][a-z\d+.-]*:|\/)/i.test(target) || /[?#]/.test(target)) continue;
+    const external = /^[a-z][a-z\d+.-]*:/i.test(target);
+    if (!target || target.startsWith('/') || (external && !includeExternal) || (!external && /[?#]/.test(target))) continue;
     const destinationOffset = match[2] !== undefined ? 2 : match[0].indexOf('](') + 2;
     const start = match.index + match[0].indexOf(raw, destinationOffset);
     const name = match[3] !== undefined ? match[0].slice(1, match[0].indexOf('](')) : '';

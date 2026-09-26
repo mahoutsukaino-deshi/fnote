@@ -2,6 +2,10 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## v0.1.4
+
+- Fix editor freezes when parsing long or incomplete Markdown links while editing.
+
 ## v0.1.3
 
 - Display links with icons in the note editor and tag/search results.

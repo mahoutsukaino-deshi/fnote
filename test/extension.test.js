@@ -273,6 +273,29 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.mkdir(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.writeFile(path.join(temp, ".fnote/旅行/index.md"), "# 旅行");
     await fs.writeFile(path.join(temp, ".fnote/plain"), "ordinary file");
+    const noteLinkFixtures = [
+      {
+        name: 'ディレクトリ（末尾スラッシュあり）',
+        text: '[](../旅行/)\n[旅行予定](../旅行/)\n[[../旅行/]]',
+        ranges: ['../旅行/', '旅行予定', '../旅行/'],
+      },
+      {
+        name: 'ディレクトリ（末尾スラッシュなし）',
+        text: '[](../旅行)\n[旅行予定](../旅行)\n[[../旅行]]',
+        ranges: ['../旅行', '旅行予定', '../旅行'],
+      },
+      {
+        name: 'ディレクトリとファイル名',
+        text: '[](../旅行/index.md)\n[旅行予定](../旅行/index.md)\n[[../旅行/index.md]]',
+        ranges: ['../旅行/index.md', '旅行予定', '../旅行/index.md'],
+      },
+    ];
+    for (const fixture of noteLinkFixtures) {
+      const links = await linkProvider.provideDocumentLinks({ ...linkDocument, getText: () => fixture.text });
+      assert.equal(links.length, 3, fixture.name);
+      assert.deepEqual(links.map(link => fixture.text.slice(link.range.start.offset, link.range.end.offset)), fixture.ranges, fixture.name);
+      for (const link of links) assert.equal(link.target.fsPath, path.join(temp, '.fnote/旅行/index.md'), fixture.name);
+    }
     const slashless = await linkProvider.provideDocumentLinks({
       ...linkDocument,
       getText: () => "[[../旅行]]\n[](../旅行)\n[](../%E6%97%85%E8%A1%8C)\n[](../旅行/index.md)\n[[../plain]]\n[](../missing)\n[](../%invalid)",
@@ -287,6 +310,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(namedFiles.length, 3);
     for (const link of namedFiles) assert.equal(link.target.fsPath, path.join(temp, '.fnote/旅行/index.md'));
     assert.deepEqual(namedFiles.map(link => namedFileText.slice(link.range.start.offset, link.range.end.offset)), ['旅行予定', '旅行予定', '../旅行/index.md']);
+    const externalText = '[mybest](https://my-best.com/3185?utm_source=google&utm_medium=cpc&gclid=example)\n[](https://example.com/)';
+    const externalLinks = await linkProvider.provideDocumentLinks({ ...linkDocument, getText: () => externalText });
+    assert.equal(externalLinks.length, 2);
+    assert.deepEqual(externalLinks.map(link => externalText.slice(link.range.start.offset, link.range.end.offset)), ['mybest', 'https://example.com/']);
+    assert.equal(externalLinks[0].target.toString(), 'https://my-best.com/3185?utm_source=google&utm_medium=cpc&gclid=example');
+    assert.equal(externalLinks[1].target.toString(), 'https://example.com/');
     await fs.rm(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.unlink(path.join(temp, ".fnote/plain"));
     const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);

@@ -206,6 +206,12 @@
               "color": "#f87171"
             },
             {
+              "tag": "Incomplete time tags",
+              "mark": "$(clock)",
+              "color": "#fbbf24",
+              "excludeFromNoteMark": true
+            },
+            {
               "tag": "date",
               "mark": "$(calendar)",
               "excludeFromNoteMark": true
@@ -275,7 +281,7 @@
             },
             "additionalProperties": false
           },
-          "description": "Tags defined earlier have higher priority when choosing note icons. Each array entry accepts tag (without @), mark, markColor, color, backgroundColor, and excludeFromNoteMark. Parent settings apply to child tags. Use tag: \"date\" for shared year, month, and day defaults; year-specific settings take priority. The legacy object format is also supported. Use the array format to preserve priority for numeric tag names."
+          "description": "Tags defined earlier have higher priority when choosing note icons. Each array entry accepts tag (without @), mark, markColor, color, backgroundColor, and excludeFromNoteMark. Parent settings apply to child tags. Use tag: \"date\" for shared year, month, and day defaults; year-specific settings take priority. Use tag: \"Incomplete time tags\" to style the virtual tag for unfinished time ranges and their text. The legacy object format is also supported. Use the array format to preserve priority for numeric tag names."
         },
         "fnote.tagBackgroundColor": {
           "type": "string",

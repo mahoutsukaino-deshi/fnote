@@ -2,6 +2,10 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## Unreleased
+
+- Group unfinished time tags such as `@10:00-` under **Incomplete time tags** instead of numeric tags. Select the entry to find unfinished work logs and customize its icon and colors with `fnote.tagStyles`.
+
 ## v0.1.4
 
 - Fix editor freezes when parsing long or incomplete Markdown links while editing.

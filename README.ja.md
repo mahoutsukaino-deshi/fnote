@@ -134,6 +134,14 @@ VS Codeの拡張機能画面で `fnote` を検索し、発行元が **maoren** �
 
 時間は日付が1つだけ書かれた行で集計します。時間タグ自体はタグ一覧には表示されません。所要時間は整数と小文字の `m` / `h` で記述してください。
 
+入力途中の `@10:00`、`@10:00-`、`@10:00-11:0` は、`10` などの数値タグを作らず、**Incomplete time tags** にまとめて表示します。選択すると該当ノートと行を確認でき、入力途中の時刻タグがなくなると一覧から消えます。未完了の時刻は作業時間に加算しません。通常のタグと同様、コード内やエスケープされたタグは対象外です。
+
+アイコンや色を変えるには、既存の `fnote.tagStyles` 配列に次の項目を追加します。`mark` には `$(clock)` などのCodiconや絵文字を指定できます。`color` はエディタと検索結果の入力途中の時刻タグにも反映します。
+
+```json
+{ "tag": "Incomplete time tags", "mark": "⏳", "color": "#fbbf24" }
+```
+
 ## 自分に合った設定にする
 
 VS Codeの設定画面を開き、検索欄に **`@ext:maoren.fnote`** と入力すると、fnoteの設定を絞り込めます。
@@ -182,6 +190,7 @@ VS Codeの設定画面を開き、検索欄に **`@ext:maoren.fnote`** と入力
 [
   { "tag": "FIX", "mark": "$(bug)", "color": "#f87171" },
   { "tag": "TODO", "mark": "$(circle-filled-compact)", "color": "#f87171" },
+  { "tag": "Incomplete time tags", "mark": "$(clock)", "color": "#fbbf24", "excludeFromNoteMark": true },
   { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
 ]
 ```
@@ -227,7 +236,7 @@ Windowsの絶対パスは、たとえば `"C:/Users/your-name/Documents/fnote"` 
 | `fnote.defaultTagMark`     | `$(circle-filled-compact)`        | 個別の印がないタグの既定アイコン   |
 | `fnote.tagColor`           | `#00BFFF`                         | タグの既定文字色                   |
 | `fnote.tagBackgroundColor` | 空文字                            | タグの既定背景色                   |
-| `fnote.tagStyles`          | `FIX`・`TODO`・`date`（上記参照） | タグごとのアイコン・色・優先順位   |
+| `fnote.tagStyles`          | `FIX`・`TODO`・`Incomplete time tags`・`date`（上記参照） | タグごとのアイコン・色・優先順位   |
 | `fnote.tagHierarchy`       | `{}`                              | タグの親子関係                     |
 
 ## 保存とバックアップ

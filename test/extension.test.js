@@ -939,6 +939,36 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     settings.delete("tagBackgroundColor");
     settings.delete("tagStyles");
     settings.delete("tagColor");
+    const incompleteTag = 'Incomplete time tags';
+    const logPath = path.join(temp, '.fnote/音楽/曲/index.md');
+    await fs.writeFile(logPath, '# Work\n## Active\n@2026/09/26 @10:00- Editing\n@10:00 Another task\n## Finished\n@10:00-11:00 Done');
+    for (const mark of ['$(clock)', '⏳']) {
+      settings.set('tagStyles', [{ tag: incompleteTag, mark, color: '#FFAA00', markColor: '#ABCDEF' }]);
+      await run('refresh');
+      const row = tagRows.find(row => row.id === incompleteTag);
+      assert.ok(row.label.includes(incompleteTag));
+      assert.equal(row.description, '1');
+      assert.deepEqual(row.appearance, { mark, color: '#ABCDEF' });
+      assert.ok(!tagRows.some(row => row.id === '10'));
+      await tagMessage({ type: 'open', id: incompleteTag });
+      assert.match(html, /<h1><span class="tag-color-\d+">Incomplete time tags<\/span><\/h1>/);
+      assert.match(html, /1 note/);
+      assert.match(html, /@10:00-<\/span> Editing/);
+      assert.match(html, /@10:00<\/span> Another task/);
+      assert.match(html, /color:#FFAA00/);
+      assert.doesNotMatch(html, /Finished<\/button>/);
+      await receiveMessage({ id: '音楽/曲', offset: '# Work\n## Active\n'.length });
+      assert.equal(shown.doc.uri.fsPath, logPath);
+      assert.equal(shown.options.selection.start.offset, '# Work\n## Active\n'.length);
+    }
+    // Unsaved editor contents take priority over the unfinished log on disk.
+    const completedDocument = { uri: uri(logPath), getText: () => '@2026/09/26 @10:00-11:00' };
+    documents.push(completedDocument);
+    await run('refresh');
+    assert.ok(!tagRows.some(row => row.id === incompleteTag));
+    assert.match(html, /No matching notes/);
+    documents.splice(documents.indexOf(completedDocument), 1);
+    settings.delete('tagStyles');
     await fs.writeFile(
       path.join(temp, ".fnote/音楽/曲/index.md"),
       "# 作業\n## 詳細\n@2026/09/13 @10:30-12:00 @10m\n@2026/09/13 @1h @TODO\n@2026/09/14 @8h",

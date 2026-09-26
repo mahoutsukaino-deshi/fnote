@@ -2,6 +2,10 @@
 
 [English](CHANGELOG.md)
 
+## Unreleased
+
+- `@10:00-` など入力途中の時刻タグを、数値タグではなく **Incomplete time tags** に集約。選択して未完了の作業ログを確認でき、`fnote.tagStyles` でアイコンや色を変更可能。
+
 ## v0.1.4
 
 - 長いURLや編集中の不完全なMarkdownリンクを解析するとエディタが固まる問題を修正。

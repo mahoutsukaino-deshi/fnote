@@ -134,6 +134,14 @@ Expand `2026` → `09` → `21` in the tag list and select the day. This example
 
 Time is counted only on lines containing exactly one date. Time tags themselves do not appear in the tag list. Use whole numbers and lowercase `m` / `h` for durations.
 
+Unfinished time tags such as `@10:00`, `@10:00-`, and `@10:00-11:0` appear together under **Incomplete time tags** instead of creating a numeric tag such as `10`. Select it to find the affected notes and lines. The entry disappears when no unfinished time tags remain. Unfinished times do not contribute to work-time totals. Code and escaped tags are excluded, as with ordinary tags.
+
+To customize its icon and colors, add the following entry to your existing `fnote.tagStyles` array. `mark` accepts a Codicon such as `$(clock)` or an emoji; `color` also applies to unfinished time tags in the editor and search results.
+
+```json
+{ "tag": "Incomplete time tags", "mark": "⏳", "color": "#fbbf24" }
+```
+
 ## Customize fnote
 
 Open VS Code Settings and enter **`@ext:maoren.fnote`** in the search field to show fnote settings.
@@ -180,6 +188,7 @@ The default value of `fnote.tagStyles` is:
 [
   { "tag": "FIX", "mark": "$(bug)", "color": "#f87171" },
   { "tag": "TODO", "mark": "$(circle-filled-compact)", "color": "#f87171" },
+  { "tag": "Incomplete time tags", "mark": "$(clock)", "color": "#fbbf24", "excludeFromNoteMark": true },
   { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
 ]
 ```
@@ -225,7 +234,7 @@ On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/
 | `fnote.defaultTagMark`     | `$(circle-filled-compact)`            | Default icon for tags without an individual icon |
 | `fnote.tagColor`           | `#00BFFF`                             | Default tag text color                           |
 | `fnote.tagBackgroundColor` | Empty string                          | Default tag background color                     |
-| `fnote.tagStyles`          | `FIX`, `TODO`, and `date` (see above) | Tag icons, colors, and priority                  |
+| `fnote.tagStyles`          | `FIX`, `TODO`, `Incomplete time tags`, and `date` (see above) | Tag icons, colors, and priority                  |
 | `fnote.tagHierarchy`       | `{}`                                  | Parent-child relationships between tags          |
 
 ## Storage and backups

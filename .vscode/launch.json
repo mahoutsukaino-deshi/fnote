@@ -3,20 +3,29 @@
   "configurations": [
     {
       "name": "fnote 拡張機能を起動",
-      "type": "extensionHost",
+      "type": "pwa-extensionHost",
       "request": "launch",
-      "args": ["--extensionDevelopmentPath=${workspaceFolder}"],
+      "runtimeExecutable": "${execPath}",
+      "args": [
+        "--disable-extensions",
+        "--extensionDevelopmentPath=${workspaceFolder}"
+      ],
+      "stopOnEntry": false,
+      "sourceMaps": true,
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "fnote: build"
     },
     {
       "name": "fnote 起動エラーの切り分け（他の拡張機能なし）",
-      "type": "extensionHost",
+      "type": "pwa-extensionHost",
       "request": "launch",
+      "runtimeExecutable": "${execPath}",
       "args": [
         "--extensionDevelopmentPath=${workspaceFolder}",
         "--disable-extensions"
       ],
+      "stopOnEntry": false,
+      "sourceMaps": true,
       "outFiles": ["${workspaceFolder}/dist/**/*.js"],
       "preLaunchTask": "fnote: build"
     }

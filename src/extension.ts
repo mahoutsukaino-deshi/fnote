@@ -28,9 +28,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     async provideDocumentLinks(document) {
       const relative = path.relative(root.fsPath, document.uri.fsPath);
       if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return [];
-      const links = await Promise.all(parseNoteLinks(document.getText()).map(async link => {
-        let target: string;
-        try { target = decodeURIComponent(link.target); } catch { return []; }
+      const links = await Promise.all(parseNoteLinks(document.getText(), true).map(async link => {
+        const external = /^[a-z][a-z\d+.-]*:/i.test(link.target);
+        let target = link.target;
+        if (!external) {
+          try { target = decodeURIComponent(link.target); } catch { return []; }
+        }
+        const range = new vscode.Range(document.positionAt(link.start), document.positionAt(link.end));
+        if (external) {
+          return [new vscode.DocumentLink(range, vscode.Uri.parse(target))];
+        }
         const resolved = vscode.Uri.joinPath(document.uri, '..', target);
         let destination = vscode.Uri.joinPath(resolved, 'index.md');
         if (!target.endsWith('/')) {
@@ -40,7 +47,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             else if (!(stat.type & vscode.FileType.Directory)) return [];
           } catch { return []; }
         }
-        return [new vscode.DocumentLink(new vscode.Range(document.positionAt(link.start), document.positionAt(link.end)), destination)];
+        return [new vscode.DocumentLink(range, destination)];
       }));
       return links.flat();
     }

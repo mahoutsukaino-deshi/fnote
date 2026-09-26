@@ -34,6 +34,33 @@ test("link display preserves destinations and source ranges across supported syn
   assert.equal(text.slice(links[0].start, links[0].end), '[](http://www.yahoo.co.jp)');
   assert.deepEqual(parseDisplayLinks('`[](https://example.com)`\n```md\n[[TRIP]]\n```\n![image](https://example.org/a.png)\n\\[[TRIP]]'), []);
 });
+test("リンク形式の確認用フィクスチャをすべて認識する", () => {
+  const { parseDisplayLinks } = require('../dist/core');
+  const url = 'http://www.yahoo.co.jp';
+  const fixtures = [
+    { source: url, label: url },
+    { source: `<${url}>`, label: url },
+    { source: `[](${url})`, label: url },
+    { source: `[Yahoo!](${url})`, label: 'Yahoo!' },
+  ];
+  for (const fixture of fixtures) {
+    const [link] = parseDisplayLinks(fixture.source);
+    assert.ok(link, fixture.source);
+    assert.equal(link.target, url);
+    assert.equal(link.label, fixture.label);
+    assert.equal(fixture.source.slice(link.displayStart, link.displayEnd), fixture.label);
+  }
+});
+test("incomplete long Markdown links remain responsive while editing", () => {
+  const { spawnSync } = require('node:child_process');
+  const url = 'https://my-best.com/3185?utm_source=google&utm_medium=cpc&utm_campaign=external-listing&gad_source=1&gad_campaignid=18196474513&gbraid=0AAAAABQyZTQLyFM1iNwrklaY2VfVunts9&gclid=CjwKCAjwq8PVBhAKEiwA2i3SHQf6pTold79-4tO8M9nTezzOcIE1beBmVX57QbCTj4Km4dvQxCFLbhoCclIQAvD_BwE';
+  const script = `const { parseDisplayLinks } = require(${JSON.stringify(require.resolve('../dist/core'))});
+    const url = ${JSON.stringify(url)};
+    for (const text of ['[mybest](' + url, '[mybest](<' + url, '[mybest](' + url + ' "title"']) parseDisplayLinks(text);`;
+  const result = spawnSync(process.execPath, ['-e', script], { timeout: 2000, encoding: 'utf8' });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+});
 test("Markdown URL colors use comma-separated and array TextMate scopes", () => {
   const { markdownLinkColor } = require("../dist/core");
   const customizations = {

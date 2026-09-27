@@ -1,6 +1,11 @@
 export interface TagMatch { tag: string; start: number; end: number }
 export interface TaggedNote { id: string; tags: TagMatch[] }
 
+// Spaces keep this virtual tag distinct from tags users can type in note text.
+export const INCOMPLETE_TIME_TAG = 'Incomplete time tags';
+export const isIncompleteTimeTag = (tag: string): boolean => /^\d+:[\d:-]*$/.test(tag) && !/^\d{2}:\d{2}-\d{2}:\d{2}$/.test(tag);
+const listedTag = (tag: string) => isIncompleteTimeTag(tag) ? INCOMPLETE_TIME_TAG : tag;
+
 export interface DisplayLink { target: string; label: string; start: number; end: number; targetStart: number; targetEnd: number; displayStart: number; displayEnd: number }
 
 // Preserve source offsets so editor decorations never change the stored Markdown.
@@ -160,7 +165,7 @@ function hierarchyParents(hierarchy: TagHierarchy): Map<string, string> {
   return parents;
 }
 function tagMatches(actual: string, selected: string, parents: Map<string, string>): boolean {
-  for (let tag = actual; tag; tag = parents.get(tag) ?? naturalTagParent(tag)) {
+  for (let tag = listedTag(actual); tag; tag = parents.get(tag) ?? naturalTagParent(tag)) {
     if (tag === selected) return true;
   }
   return false;
@@ -216,7 +221,7 @@ function maskCode(text: string): string {
 
 export function parseTags(text: string): TagMatch[] {
   const result = [];
-  const pattern = /(?<![\p{L}\p{N}_@\\])@(\d{2}:\d{2}-\d{2}:\d{2}|[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*)/gu;
+  const pattern = /(?<![\p{L}\p{N}_@\\])@(\d+:[\d:-]*|[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*)/gu;
   for (const match of maskCode(text).matchAll(pattern)) result.push({ tag: match[1], start: match.index, end: match.index + match[0].length });
   return result;
 }
@@ -309,7 +314,7 @@ function styleKeyFor(tag: string, styles: Map<string, TagStyle>): string | undef
 }
 export function styleFor(tag: string, styles: TagStyles): TagStyle {
   const definitions = new Map(styleEntries(styles).reverse());
-  const key = styleKeyFor(tag, definitions);
+  const key = styleKeyFor(listedTag(tag), definitions);
   return key === undefined ? {} : definitions.get(key)!;
 }
 
@@ -364,7 +369,7 @@ export function noteAppearance(tags: readonly TagMatch[], styles: TagStyles, unt
   const tag = eligible[0].tag;
   return tagAppearance(tag, styles, defaultTagMark, hierarchy);
 }
-export const isTimeTag = (tag: string): boolean => /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
+export const isTimeTag = (tag: string): boolean => isIncompleteTimeTag(tag) || /^(?:\d{2}:\d{2}-\d{2}:\d{2}|\d+[mh])$/.test(tag);
 export const isDateTag = (tag: string): boolean => /^\d{4}\/\d{2}\/\d{2}$/.test(tag);
 
 export function tagTree(notes: readonly TaggedNote[], hierarchy: TagHierarchy = {}): Map<string, TagNode> {
@@ -381,7 +386,10 @@ export function tagTree(notes: readonly TaggedNote[], hierarchy: TagHierarchy = 
     siblings.set(siblings.has(node.label) ? node.tag : node.label, node);
     return node;
   }
-  for (const note of notes) for (const { tag } of note.tags) if (!isTimeTag(tag)) ensure(tag);
+  for (const note of notes) for (const { tag } of note.tags) {
+    if (isIncompleteTimeTag(tag)) ensure(INCOMPLETE_TIME_TAG);
+    else if (!isTimeTag(tag)) ensure(tag);
+  }
   return roots;
 }
 export const matchesTag = (note: TaggedNote, tag: string, hierarchy: TagHierarchy = {}) => {

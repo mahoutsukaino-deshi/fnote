@@ -20,6 +20,46 @@ const {
   escapeHtml,
 } = require("../dist/core");
 const tags = (text) => parseTags(text).map((t) => t.tag);
+test("unfinished times retain source ranges and share a searchable virtual tag", () => {
+  const { INCOMPLETE_TIME_TAG, isIncompleteTimeTag, matchesTag, tagAppearance } = require('../dist/core');
+  const partials = ['10:', '10:0', '10:00', '10:00-', '10:00-1', '10:00-11', '10:00-11:', '10:00-11:0'];
+  const text = '# Log\n## In progress\n' + partials.map(t => `@2026/09/26 @${t} work`).join('\n')
+    + '\n## Done\n@2026/09/26 @10:00-11:00 @30m\n@10 @TODO';
+  const parsed = parseTags(text);
+  for (const match of parsed) assert.equal(text.slice(match.start, match.end), '@' + match.tag);
+  for (const value of partials) {
+    assert.ok(isIncompleteTimeTag(value));
+    assert.ok(isTimeTag(value));
+    assert.equal(timeTagMinutes(value), undefined);
+  }
+  const notes = [{ id: 'parent', tags: [] }, { id: 'parent/log', tags: parsed }];
+  const tree = tagTree(notes);
+  assert.equal(tree.get(INCOMPLETE_TIME_TAG).label, 'Incomplete time tags');
+  assert.deepEqual([...tree.keys()], ['2026', INCOMPLETE_TIME_TAG, '10', 'TODO']);
+  assert.equal(matchesTag(notes[1], INCOMPLETE_TIME_TAG), true);
+  assert.deepEqual(filterTree(notes, INCOMPLETE_TIME_TAG), notes);
+  assert.equal(matchingLines(text, INCOMPLETE_TIME_TAG).length, partials.length);
+  assert.equal(matchingLines(text, '10').length, 1);
+  const headings = matchingHeadings(text, INCOMPLETE_TIME_TAG);
+  assert.deepEqual(headings[0].children.map(h => h.title), ['In progress']);
+  assert.equal(minutesForDate(text, matchingLines(text, '2026/09/26'), '2026/09/26'), 90);
+  assert.equal(minutesForDate(text, matchingLines(text, INCOMPLETE_TIME_TAG), '2026/09/26'), undefined);
+  const onlyPartial = partials.map(t => '@' + t).join(' ');
+  assert.deepEqual([...tagTree([{ id: 'n', tags: parseTags(onlyPartial) }]).keys()], [INCOMPLETE_TIME_TAG]);
+  assert.equal(noteMark(parseTags(onlyPartial), {}, '📝'), '📝');
+  assert.equal(tagTree([{ id: 'n', tags: parseTags('@10:00-11:00') }]).size, 0);
+  assert.equal(matchesTag({ id: 'n', tags: parseTags('@10:00-11:00') }, INCOMPLETE_TIME_TAG), false);
+  assert.deepEqual(parseTags('`@10:00-`\n```\n@10:00\n```\n\\@10:00- person@10:00-\n    @10:00-'), []);
+  for (const mark of ['$(clock)', '⏳']) {
+    const style = { mark, color: '#ffaa00', markColor: '#aabbcc', backgroundColor: '#112233' };
+    for (const styles of [{ [INCOMPLETE_TIME_TAG]: style }, [{ tag: INCOMPLETE_TIME_TAG, ...style }]]) {
+      assert.equal(styleFor('10:00-', styles).color, style.color);
+      assert.equal(styleFor('10:00-', styles).backgroundColor, style.backgroundColor);
+      assert.deepEqual(tagAppearance(INCOMPLETE_TIME_TAG, styles), { mark, color: style.markColor });
+      assert.deepEqual(styleFor('10:00-11:00', styles), {});
+    }
+  }
+});
 test("link display preserves destinations and source ranges across supported syntax", () => {
   const { parseDisplayLinks } = require('../dist/core');
   const text = '[](http://www.yahoo.co.jp) <http://www.yahoo.co.jp> [[TRIP]] [Name](https://example.com/a(b)) https://example.org [Space](<../my trip/>)';

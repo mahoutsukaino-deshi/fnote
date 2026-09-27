@@ -6,7 +6,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
-import { parseNoteLinks, parseDisplayLinks } from './core';
+import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
 function isMissing(error: unknown): boolean {
@@ -104,7 +104,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getTreeItem: n => {
       const mark = tagAppearance(n.tag, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()).mark;
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
-      item.id = n.tag; item.tooltip = `@${n.tag}`;
+      item.id = n.tag; item.tooltip = n.tag === INCOMPLETE_TIME_TAG ? n.tag : `@${n.tag}`;
       item.description = String(notes.filter(note => matchesTag(note, n.tag, hierarchy())).length);
       item.command = { command: 'fnote.filter', title: 'Find by Tag', arguments: [n.tag] };
       return item;
@@ -298,7 +298,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
       : filterTree(notes, tag, hierarchy());
     const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
-    const title = activeQuery ? `Search: ${activeQuery}` : `@${tag}`;
+    const title = activeQuery ? `Search: ${activeQuery}` : tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`;
     const count = activeQuery ? hits.length : notes.filter(isMatch).length;
     const tagClasses = new Map<string, string>();
     const styles = config().get<TagStyles>('tagStyles', {});
@@ -397,7 +397,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
     const body = subset.length ? branch('') : '<p>No matching notes.</p>';
-    const titleHtml = activeQuery ? h(title) : renderTagText(title, parseTags(title), classFor);
+    const titleHtml = activeQuery ? h(title) : tag === INCOMPLETE_TIME_TAG
+      ? `<span class="${classFor(tag)}">${h(title)}</span>`
+      : renderTagText(title, parseTags(title), classFor);
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const nonce = crypto.randomBytes(16).toString('hex');
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
@@ -406,7 +408,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   function filter(tag: string) {
     activeTag = tag;
     activeQuery = undefined;
-    showResults(`@${tag}`);
+    showResults(tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`);
   }
   async function search() {
     const query = await vscode.window.showInputBox({

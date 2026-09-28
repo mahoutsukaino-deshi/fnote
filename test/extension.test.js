@@ -273,6 +273,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await fs.mkdir(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.writeFile(path.join(temp, ".fnote/旅行/index.md"), "# 旅行");
     await fs.writeFile(path.join(temp, ".fnote/plain"), "ordinary file");
+    await fs.writeFile(path.join(temp, ".fnote/旅行/a(new).png"), "image");
     const noteLinkFixtures = [
       {
         name: 'ディレクトリ（末尾スラッシュあり）',
@@ -296,6 +297,15 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       assert.deepEqual(links.map(link => fixture.text.slice(link.range.start.offset, link.range.end.offset)), fixture.ranges, fixture.name);
       for (const link of links) assert.equal(link.target.fsPath, path.join(temp, '.fnote/旅行/index.md'), fixture.name);
     }
+    const parenthesized = "[graph](a(new).png)";
+    const parenthesizedLinks = await linkProvider.provideDocumentLinks({
+      ...linkDocument,
+      uri: uri(path.join(temp, ".fnote/旅行/index.md")),
+      getText: () => parenthesized,
+    });
+    assert.equal(parenthesizedLinks.length, 1);
+    assert.equal(parenthesized.slice(parenthesizedLinks[0].range.start.offset, parenthesizedLinks[0].range.end.offset), "graph");
+    assert.equal(parenthesizedLinks[0].target.fsPath, path.join(temp, ".fnote/旅行/a(new).png"));
     const slashless = await linkProvider.provideDocumentLinks({
       ...linkDocument,
       getText: () => "[[../旅行]]\n[](../旅行)\n[](../%E6%97%85%E8%A1%8C)\n[](../旅行/index.md)\n[[../plain]]\n[](../missing)\n[](../%invalid)",

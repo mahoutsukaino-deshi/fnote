@@ -104,7 +104,8 @@ export function parseNoteLinks(text: string, includeExternal = false): { target:
     return [{ target, start: link.displayStart, end: link.displayEnd }];
   });
 }
-export interface Note extends TaggedNote { parent: string; name: string; text: string }
+export interface Attachment { id: string; parent: string; name: string; directory: boolean }
+export interface Note extends TaggedNote { parent: string; name: string; text: string; attachments?: Attachment[] }
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }
 export interface HeadingMatch { title: string; start: number; matched: boolean; lines: ContentMatch[]; children: HeadingMatch[] }

@@ -15,6 +15,7 @@ Edit your notes in the familiar Markdown editor. Notes are saved as Markdown fil
 - **Tags and search**: Find notes and matching lines by tag or keyword.
 - **Time tracking**: Add dates and durations to review your work by day, month, or year.
 - **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
+- **Attachments**: Hold Shift while dropping files into a Markdown note or onto a note in the list, or use the note menu to copy them beside `index.md`.
 
 In note text, `[[../TRIP/]]` and <code>&#91;&#93;(../TRIP/)</code> link to `../TRIP/index.md` relative to the current note in the editor. The trailing `/` is optional when the target is an existing directory: `[[../TRIP]]` and <code>&#91;&#93;(../TRIP)</code> work too.
 
@@ -23,6 +24,12 @@ The note editor and tag/search results display links as a Codicons `link-externa
 Set `fnote.linkMark` to customize the link icon in both views. The default is `"$(link-external)"`; examples include `"fnote.linkMark": "$(globe)"` or `"fnote.linkMark": "🔗"`. An empty string hides the icon. Codicon names absent from the bundled set fall back to the default icon.
 
 Relative links can also include a filename, such as <code>&#91;Travel plans&#93;(../Travel/index.md)</code>. Existing files open directly; directory links open the `index.md` inside them.
+
+Files beside a note's `index.md`, including files inside attachment folders, appear under that note in the list. Click an attachment to open it, or use its context menu to delete it. Attachment links use the `fnote.attachmentMark` icon (default "$(attach)") and `fnote.attachmentColor`; text or emoji marks are supported too.
+
+To attach files from the Markdown editor, drag them over the note's `index.md` and hold **Shift** before releasing them. A normal drop opens the file in VS Code instead. Keep `editor.dropIntoEditor.enabled` enabled; if a drop-action selector appears, choose **Copy attachments into fnote**.
+
+The note list also requires **Shift** when dropping external files or folders. Drag from Finder or File Explorer, hold Shift while moving over the destination note row, and release the mouse while still holding Shift. VS Code can block drops into the list's webview without Shift, before fnote receives any event. Drop onto the note name, not the view header or empty space. Alternatively, use **Add Attachment** in the note's context menu. Moving notes within the list does not require Shift.
 
 ## Getting started
 

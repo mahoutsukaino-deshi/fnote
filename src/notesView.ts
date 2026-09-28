@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as crypto from 'node:crypto';
-import { parseHeadings, type Note } from './core';
+import { parseHeadings, type Attachment, type Note } from './core';
 
 interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number }
 
@@ -18,7 +18,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     private readonly onDrop: (id: string, target: string | undefined, position: DropPosition) => Promise<void>,
     private readonly tagMode = false,
     private readonly collapsedLabel?: (note: Note) => string,
-    private readonly appearance?: (note: Note, collapsed: boolean) => { mark: string; color?: string }
+    private readonly appearance?: (note: Note, collapsed: boolean) => { mark: string; color?: string },
+    private readonly attachmentAppearance?: (attachment: Attachment) => { mark: string; color?: string }
   ) {}
   get selection(): Note[] { return this.current.filter(note => note.id === this.selectedId); }
   async collapseAll(): Promise<void> {
@@ -33,6 +34,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async update(notes: Note[]): Promise<void> {
     this.current = notes;
+    const attachments = notes.flatMap(note => note.attachments ?? []);
     this.outline = this.tagMode ? [] : notes.flatMap(note => {
       const rows: OutlineRow[] = [];
       const stack: { level: number; id: string }[] = [];
@@ -45,12 +47,20 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
       }
       return rows;
     });
+    const attachmentRows = this.tagMode ? [] : attachments.map(attachment => ({
+      id: attachment.id,
+      parent: attachment.parent,
+      label: attachment.name,
+      attachment: true,
+      directory: attachment.directory,
+      appearance: this.attachmentAppearance?.(attachment),
+    }));
     if (!this.view) return;
     const rows = await Promise.all(notes.map(async note => {
       const item = await this.data.getTreeItem(note);
       return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, collapsedLabel: this.collapsedLabel?.(note), appearance: this.appearance?.(note, false), collapsedAppearance: this.appearance?.(note, true) };
     }));
-    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows], selected: this.selectedId });
+    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows, ...attachmentRows], selected: this.selectedId });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -61,7 +71,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     const iconCss = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'codicons', 'codicon.css'));
     webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">
 body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-foreground,var(--fnote-fallback-foreground));margin:0;color:var(--fnote-foreground);background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}body.vscode-light,body.vscode-high-contrast-light{--fnote-fallback-foreground:#333333}body.vscode-dark,body.vscode-high-contrast{--fnote-fallback-foreground:#cccccc}#tree{color:var(--fnote-foreground);min-height:100vh;padding:2px 0 36px;box-sizing:border-box;outline:none}.row{color:var(--fnote-foreground);height:22px;display:flex;align-items:center;box-sizing:border-box;position:relative;white-space:nowrap;cursor:default}.row:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--fnote-foreground))}.row[data-outline="true"]:not(.selected){color:var(--vscode-descriptionForeground,var(--fnote-foreground))}.row.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}.row:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px}.row .note-icon{flex:none;margin-right:5px}.row .label{color:inherit;overflow:hidden;text-overflow:ellipsis}.toggle{flex:none;width:20px;padding:0;background:none;border:0;color:inherit;font:inherit;height:22px;cursor:pointer}.before::before,.after::after{content:'';position:absolute;height:2px;left:0;right:0;background:var(--vscode-list-dropBetweenBackground,var(--vscode-focusBorder));z-index:2}.before::before{top:0}.after::after{bottom:0}.inside{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px;background:var(--vscode-list-dropBackground)}#root-drop{height:24px;margin:0 8px;color:var(--vscode-descriptionForeground);font-size:11px}#root-drop.over{border-top:2px solid var(--vscode-focusBorder)}#hint{padding:8px;color:var(--vscode-descriptionForeground)}#menu{position:fixed;z-index:10;background:var(--vscode-menu-background);color:var(--vscode-menu-foreground,var(--fnote-foreground));border:1px solid var(--vscode-menu-border,var(--vscode-widget-border));box-shadow:0 2px 8px #0004;padding:4px;max-height:90vh;overflow:auto}#menu button{display:block;width:100%;border:0;text-align:left;padding:4px 12px;font:inherit;background:none;color:inherit}#menu button:hover,#menu button:focus{background:var(--vscode-menu-selectionBackground);color:var(--vscode-menu-selectionForeground,var(--fnote-foreground))}
-</style></head><body data-tags="${this.tagMode}"><div id="tree" role="tree" aria-label="${this.tagMode ? 'Tags' : 'Notes'}" tabindex="0"></div><div id="menu" role="menu" hidden></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
+#attachment-hint{padding:6px 8px;color:var(--vscode-descriptionForeground);font-size:11px;line-height:1.4}
+</style></head><body data-tags="${this.tagMode}">${this.tagMode ? '' : '<div id="attachment-hint">Attach files: hold Shift and drop onto a note.</div>'}<div id="tree" role="tree" aria-label="${this.tagMode ? 'Tags' : 'Notes'}"${this.tagMode ? '' : ' aria-describedby="attachment-hint"'} tabindex="0"></div><div id="menu" role="menu" hidden></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
     this.subscriptions.push(webview.onDidReceiveMessage(async (message: unknown) => {
       if (!message || typeof message !== 'object' || !('type' in message)) return;
       try {
@@ -74,6 +85,23 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
         }
         if (message.type === 'ready') { await this.update(this.current); return; }
         if ('id' in message && typeof message.id === 'string') {
+          if (!this.tagMode && this.current.some(note => note.id === message.id) && message.type === 'attachmentDropError') {
+            throw new Error('Could not read dropped attachments: ' + ('error' in message ? String(message.error) : 'Unknown error'));
+          }
+          if (!this.tagMode && this.current.some(note => note.id === message.id) && message.type === 'attachmentDrop') {
+            if ('files' in message) await vscode.commands.executeCommand('fnote.dropAttachmentFiles', message.id, message.files);
+            else if ('uris' in message && Array.isArray(message.uris) && message.uris.every(uri => typeof uri === 'string')) {
+              await vscode.commands.executeCommand('fnote.dropAttachments', message.id, message.uris);
+            }
+            return;
+          }
+          const attachment = this.current.flatMap(note => note.attachments ?? []).find(item => item.id === message.id);
+          if (attachment) {
+            this.selectedId = attachment.id;
+            if (message.type === 'openAttachment') await vscode.commands.executeCommand('fnote.openAttachment', attachment.id);
+            if (message.type === 'command' && 'command' in message && message.command === 'deleteAttachment') await vscode.commands.executeCommand('fnote.deleteAttachment', attachment.id);
+            return;
+          }
           const heading = this.outline.find(row => row.id === message.id);
           if (heading) {
             this.selectedId = heading.noteId;
@@ -87,7 +115,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           if (this.tagMode) await vscode.commands.executeCommand('fnote.filter', message.id);
           else await vscode.commands.executeCommand('fnote.open', message.id, undefined, true);
         }
-        if (!this.tagMode && message.type === 'command' && 'command' in message && typeof message.command === 'string' && ['addChild', 'rename', 'move', 'up', 'down', 'delete'].includes(message.command)) {
+        if (!this.tagMode && message.type === 'command' && 'command' in message && typeof message.command === 'string' && ['addChild', 'addAttachment', 'rename', 'move', 'up', 'down', 'delete'].includes(message.command)) {
           await vscode.commands.executeCommand(`fnote.${message.command}`, this.selection[0]);
         }
         if (message.type === 'drop' && 'position' in message && ['before', 'after', 'inside'].includes(String(message.position))) {

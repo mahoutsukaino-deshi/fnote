@@ -27,10 +27,13 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     configurationChanged,
     selectionChanged,
     shown,
-    linkProvider;
+    linkProvider,
+    dropProvider;
   const documents = [];
   const editorStyles = [];
   const closeCalls = [];
+  const openedAttachments = [];
+  const attachmentSources = [];
   let closeResult = true;
   const settings = new Map([["defaultTagMark", "🏷️"]]);
   const api = {
@@ -39,9 +42,16 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         linkProvider = provider;
         return disposable();
       },
+      registerDocumentDropEditProvider(selector, provider) {
+        dropProvider = provider;
+        return disposable();
+      },
     },
     DocumentLink: class {
       constructor(range, target) { Object.assign(this, { range, target }); }
+    },
+    DocumentDropEdit: class {
+      constructor(insertText) { this.insertText = insertText; }
     },
     ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: {
@@ -99,6 +109,13 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
           );
         });
       }
+      createFile(u, options = {}) {
+        this.ops.push(async () => {
+          await fs.mkdir(path.dirname(u.fsPath), { recursive: true });
+          const data = options.contents?.data ? await options.contents.data() : options.contents ?? [];
+          await fs.writeFile(u.fsPath, Buffer.from(data), { flag: options.overwrite ? 'w' : 'wx' });
+        });
+      }
       renameFile(a, b) {
         this.ops.push(() => fs.rename(a.fsPath, b.fsPath));
       }
@@ -110,6 +127,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       executeCommand: (name, ...args) =>
         name === "setContext"
           ? contexts.set(...args)
+          : name === "vscode.open" || name === "revealFileInOS"
+            ? openedAttachments.push({ name, uri: args[0] })
           : commands.get(name)(...args),
       registerCommand(name, fn) {
         commands.set(name, fn);
@@ -135,6 +154,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         stat: async (u) => {
           const stat = await fs.stat(u.fsPath).catch(fileError);
           return { type: stat.isDirectory() ? 2 : 1 };
+        },
+        copy: async (source, target, options = {}) => {
+          await fs.cp(source.fsPath, target.fsPath, { recursive: true, force: Boolean(options.overwrite) });
         },
       },
       applyEdit: async (edit) => {
@@ -197,6 +219,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       },
       showInputBox: async () => inputs.shift(),
       showQuickPick: async () => picks.shift(),
+      showOpenDialog: async () => attachmentSources.shift(),
       showWarningMessage: async () => "Delete",
       showErrorMessage: (message) => errors.push(message),
       showTextDocument: async (doc, options) => {
@@ -430,6 +453,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.equal(contexts.get("fnote.tagsAllCollapsed"), true);
     assert.match(tagHtml, /data-tags="true"/);
+    assert.doesNotMatch(tagHtml, /id="attachment-hint"/);
     settings.set("tagStyles", [
       { tag: "date", mark: "$(calendar)", markColor: "#ABCDEF" },
     ]);
@@ -516,11 +540,13 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(tagRows.find((row) => row.id === "TODO").parent, "");
     // Exercise actual sidebar messages, including file moves and insertion order.
     let sidebarMessage,
+      sidebarHtml,
       noteRows = [];
     const sidebar = views.get("fnote.notes").webviewProvider;
     sidebar.resolveWebviewView({
       webview: {
         asWebviewUri: (value) => value,
+        set html(value) { sidebarHtml = value; },
         postMessage: async (message) => {
           if (message.type === "notes") noteRows = message.rows;
         },
@@ -530,6 +556,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         },
       },
     });
+    assert.match(sidebarHtml, /id="attachment-hint">Attach files: hold Shift and drop onto a note\./);
+    assert.match(sidebarHtml, /aria-describedby="attachment-hint"/);
     await sidebarMessage({
       type: "expansionState",
       allCollapsed: false,
@@ -539,8 +567,65 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(contexts.get("fnote.tagsAllCollapsed"), true);
     const outlineText =
       "# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾";
+    await fs.writeFile(path.join(temp, ".fnote/音楽/資料.txt"), "attachment");
+    await fs.mkdir(path.join(temp, ".fnote/音楽/assets"), { recursive: true });
+    await fs.writeFile(path.join(temp, ".fnote/音楽/assets/preview.png"), "image");
     await fs.writeFile(path.join(temp, ".fnote/音楽/index.md"), outlineText);
     await run("refresh");
+    const attachmentRows = noteRows.filter((row) => row.attachment);
+    assert.deepEqual(attachmentRows.map((row) => row.id).sort(), ["音楽/assets", "音楽/assets/preview.png", "音楽/資料.txt"]);
+    assert.deepEqual(attachmentRows.find((row) => row.id === "音楽/資料.txt").appearance, { mark: "$(attach)", color: undefined });
+    await sidebarMessage({ type: "openAttachment", id: "音楽/資料.txt" });
+    assert.equal(openedAttachments.at(-1).name, "vscode.open");
+    assert.equal(openedAttachments.at(-1).uri.fsPath, path.join(temp, ".fnote/音楽/資料.txt"));
+    await sidebarMessage({ type: "command", id: "音楽/assets/preview.png", command: "deleteAttachment" });
+    assert.equal(await fs.stat(path.join(temp, ".fnote/音楽/assets/preview.png")).catch(() => undefined), undefined);
+    await fs.writeFile(path.join(temp, "external.txt"), "external");
+    attachmentSources.push([uri(path.join(temp, "external.txt"))]);
+    await run("addAttachment", parent);
+    assert.equal(await fs.readFile(path.join(temp, ".fnote/音楽/external.txt"), "utf8"), "external");
+    const dropEdit = await dropProvider.provideDocumentDropEdits(
+      { uri: uri(path.join(temp, ".fnote/音楽/index.md")) },
+      {},
+      new Map([[
+        "files",
+        { asFile: () => ({ name: "dropped.txt", data: async () => Buffer.from("dropped") }) },
+      ]]),
+      {},
+    );
+    assert.equal(dropEdit.insertText, "[](dropped.txt)");
+    await api.workspace.applyEdit(dropEdit.additionalEdit);
+    assert.equal(await fs.readFile(path.join(temp, ".fnote/音楽/dropped.txt"), "utf8"), "dropped");
+    // The browser sends bytes, not File.path, for OS drops into a webview.
+    await sidebarMessage({ type: 'attachmentDrop', id: '音楽', files: [
+      { name: 'browser/data.bin', data: [0, 255, 128, 1] },
+      { name: 'browser', directory: true },
+      { name: 'browser/empty', directory: true },
+    ] });
+    assert.deepEqual(await fs.readFile(path.join(temp, '.fnote/音楽/browser/data.bin')), Buffer.from([0, 255, 128, 1]));
+    assert.ok((await fs.stat(path.join(temp, '.fnote/音楽/browser/empty'))).isDirectory());
+    assert.ok(noteRows.some(row => row.id === '音楽/browser/data.bin' && row.attachment));
+    await sidebarMessage({ type: 'attachmentDrop', id: '音楽', files: [{ name: '../escape.txt', data: [1] }] });
+    assert.match(errors.pop(), /Invalid dropped attachment/);
+    await sidebarMessage({ type: 'attachmentDrop', id: '音楽', files: [{ name: 'index.md', data: [1] }] });
+    assert.match(errors.pop(), /Invalid dropped attachment/);
+    await sidebarMessage({ type: 'attachmentDrop', id: '音楽', files: [{ name: 'browser/data.bin', data: [1] }] });
+    assert.match(errors.pop(), /already exists/);
+    assert.deepEqual(await fs.readFile(path.join(temp, '.fnote/音楽/browser/data.bin')), Buffer.from([0, 255, 128, 1]));
+    // A file URI must not cause a copy while VS Code is still gathering drop choices.
+    const deferred = await dropProvider.provideDocumentDropEdits(
+      { uri: uri(path.join(temp, '.fnote/音楽/index.md')) }, {}, new Map([['image/png', {
+        asFile: () => ({ name: '旅行(3.png', uri: uri(path.join(temp, 'external.txt')), data: async () => Buffer.from([0, 255, 42]) }),
+      }]]), { isCancellationRequested: false });
+    assert.equal(await fs.stat(path.join(temp, '.fnote/音楽/旅行(3.png')).catch(() => undefined), undefined);
+    assert.equal(deferred.insertText, '[](%E6%97%85%E8%A1%8C%283.png)');
+    await api.workspace.applyEdit(deferred.additionalEdit);
+    assert.deepEqual(await fs.readFile(path.join(temp, '.fnote/音楽/旅行(3.png')), Buffer.from([0, 255, 42]));
+    const cancelled = await dropProvider.provideDocumentDropEdits(
+      { uri: uri(path.join(temp, '.fnote/音楽/index.md')) }, {}, new Map([['files', {
+        asFile: () => ({ name: 'cancelled.txt', data: async () => { throw new Error('must not read'); } }),
+      }]]), { isCancellationRequested: true });
+    assert.equal(cancelled, undefined);
     const outline = noteRows.filter((row) => row.noteId === "音楽");
     assert.deepEqual(
       outline.map((row) => row.label),

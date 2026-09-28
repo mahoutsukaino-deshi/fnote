@@ -5,12 +5,36 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
-import type { Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
+import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
 import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
+}
+
+function markdownAttachmentLink(name: string): string {
+  const target = name.split('/').map(part => encodeURIComponent(part).replace(/[!'()*]/g, char => '%' + char.charCodeAt(0).toString(16).toUpperCase())).join('/');
+  return `[](${target})`;
+}
+
+function droppedUri(value: string): vscode.Uri {
+  return /^(?:[a-zA-Z]:[\\/]|[\\/])/.test(value) ? vscode.Uri.file(value) : vscode.Uri.parse(value);
+}
+
+function validAttachmentPath(name: string): boolean {
+  return !!name && !/[\\\x00-\x1f:]/.test(name)
+    && name.split('/').every(part => !!part && part !== '.' && part !== '..')
+    && name.toLowerCase() !== 'index.md';
+}
+
+function isAttachmentLink(note: Note, target: string): boolean {
+  if (!target || target.startsWith('/') || /[?#]/.test(target) || /^[a-z][a-z\d+.-]*:/i.test(target)) return false;
+  let decoded: string;
+  try { decoded = decodeURIComponent(target); } catch { return false; }
+  const relative = path.posix.normalize(decoded);
+  if (relative === '.' || relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative)) return false;
+  return (note.attachments ?? []).some(item => item.id === `${note.id}/${relative}`);
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -52,6 +76,48 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return links.flat();
     }
   }));
+  context.subscriptions.push(vscode.languages.registerDocumentDropEditProvider({ language: 'markdown', scheme: 'file', pattern: new vscode.RelativePattern(root, '**/index.md') }, {
+    async provideDocumentDropEdits(document, position, dataTransfer, token) {
+      const relative = path.relative(root.fsPath, document.uri.fsPath);
+      if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || path.basename(relative) !== 'index.md' || path.dirname(relative) === '.') return;
+      const noteId = path.dirname(relative).split(path.sep).join('/');
+      const files: { name: string; contents: Uint8Array | vscode.DataTransferFile }[] = [];
+      for (const [, item] of dataTransfer) {
+        const dropped = item.asFile();
+        if (dropped && !files.some(file => file.name === dropped.name)) files.push({ name: dropped.name, contents: dropped });
+      }
+      const uriList = dataTransfer.get('text/uri-list') ?? dataTransfer.get('text/plain');
+      if (uriList) {
+        for (const value of (await uriList.asString()).split(/\r?\n/).map(value => value.trim()).filter(value => value && !value.startsWith('#'))) {
+          if (!/^(?:file:\/\/|[a-zA-Z]:[\\/]|\/)/.test(value)) continue;
+          const source = droppedUri(value);
+          let stat;
+          try { stat = await vscode.workspace.fs.stat(source); } catch { continue; }
+          if (!(stat.type & vscode.FileType.File)) continue;
+          const name = path.basename(source.fsPath || source.path);
+          if (name && !files.some(file => file.name === name)) files.push({ name, contents: await vscode.workspace.fs.readFile(source) });
+        }
+      }
+      if (!files.length) return;
+      const edit = new vscode.WorkspaceEdit();
+      const links: string[] = [];
+      for (const dropped of files) {
+        if (token?.isCancellationRequested) return;
+        if (!validAttachmentPath(dropped.name) || dropped.name.includes('/')) throw new Error('Invalid attachment name: ' + dropped.name);
+        const destination = vscode.Uri.joinPath(uri(noteId), dropped.name);
+        // Resolve bytes while the drag data is valid, and create only if this edit is applied.
+        const contents = 'data' in dropped.contents ? await dropped.contents.data() : dropped.contents;
+        edit.createFile(destination, { contents, overwrite: false });
+        links.push(markdownAttachmentLink(dropped.name));
+      }
+      if (token?.isCancellationRequested) return;
+      const result = new vscode.DocumentDropEdit(links.join('\n'));
+      // New VS Code versions expose these fields; older versions ignore them.
+      Object.assign(result, { title: 'Copy attachments into fnote', kind: { value: 'fnote.attachment' } });
+      result.additionalEdit = edit;
+      return result;
+    }
+  }));
   let notes: Note[] = [];
   let panel: vscode.WebviewPanel | undefined;
   let activeTag: string | undefined;
@@ -89,7 +155,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, false, note => {
     const mark = marks({ ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) });
     return `${mark ? `${mark} ` : ''}${note.name}`;
-  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note));
+  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), () => {
+    const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
+    return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
+  });
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
   const hierarchy = () => config().get<TagHierarchy>('tagHierarchy', {});
   const sortedTags = (nodes: Iterable<TagNode>) => [...nodes].sort((a, b) => {
@@ -151,21 +220,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.tags', tags));
   async function scan() {
     const found: Note[] = [];
-    async function walk(id: string, parent: string): Promise<void> {
-      let entries;
-      try { entries = await vscode.workspace.fs.readDirectory(uri(id)); }
-      catch (error) { if (isMissing(error)) return; throw error; }
-      if (id) {
-        let text = '';
-        if (entries.some(([name, type]) => name === 'index.md' && type === vscode.FileType.File)) {
-          const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file(id).toString());
-          text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8');
-        }
-        found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text) });
+    const readEntries = async (id: string): Promise<[string, vscode.FileType][]> => {
+      try { return await vscode.workspace.fs.readDirectory(uri(id)); }
+      catch (error) { if (isMissing(error)) return []; throw error; }
+    };
+    const hasIndex = (entries: readonly [string, vscode.FileType][]) => entries.some(([name, type]) => name === 'index.md' && type === vscode.FileType.File);
+    async function collectAttachments(id: string, parent: string, entries: readonly [string, vscode.FileType][], output: Attachment[]): Promise<void> {
+      output.push({ id, parent, name: path.posix.basename(id), directory: true });
+      for (const [name, type] of entries) {
+        const child = `${id}/${name}`;
+        if (type === vscode.FileType.Directory) await collectAttachments(child, id, await readEntries(child), output);
+        else output.push({ id: child, parent: id, name, directory: false });
       }
-      for (const [name, type] of entries) if (type === vscode.FileType.Directory && !name.startsWith('.')) await walk(id ? `${id}/${name}` : name, id);
     }
-    await walk('', '');
+    async function walkNote(id: string, parent: string, entries: readonly [string, vscode.FileType][]): Promise<void> {
+      const attachments: Attachment[] = [];
+      const childNotes: { id: string; entries: readonly [string, vscode.FileType][] }[] = [];
+      for (const [name, type] of entries) {
+        if (name === 'index.md' && type === vscode.FileType.File) continue;
+        const child = `${id}/${name}`;
+        if (type === vscode.FileType.Directory) {
+          const childEntries = await readEntries(child);
+          if (hasIndex(childEntries)) childNotes.push({ id: child, entries: childEntries });
+          else await collectAttachments(child, id, childEntries, attachments);
+        } else attachments.push({ id: child, parent: id, name, directory: false });
+      }
+      const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file(id).toString());
+      const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8');
+      found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text), attachments });
+      for (const child of childNotes) await walkNote(child.id, id, child.entries);
+    }
+    const rootEntries = await readEntries('');
+    for (const [name, type] of rootEntries) if (type === vscode.FileType.Directory && !name.startsWith('.')) {
+      const id = name;
+      const entries = await readEntries(id);
+      if (hasIndex(entries)) await walkNote(id, '', entries);
+    }
     if (disposed) return;
     notes = found.sort((a, b) => {
       const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
@@ -200,26 +290,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         decorations.push(decoration); editor.setDecorations(decoration, ranges);
       }
       const hidden: vscode.Range[] = [];
-      const targets: vscode.Range[] = [];
+      const note = notes.find(item => file(item.id).toString() === editor.document.uri.toString());
+      const linkGroups = new Map<string, { mark: ReturnType<typeof linkMark>; color: string | vscode.ThemeColor; ranges: vscode.Range[] }>();
       for (const link of parseDisplayLinks(editor.document.getText())) {
         const range = new vscode.Range(editor.document.positionAt(link.start), editor.document.positionAt(link.end));
         if (editor.selections.some(selection => range.intersection(selection))) continue;
-        targets.push(new vscode.Range(editor.document.positionAt(link.displayStart), editor.document.positionAt(link.displayEnd)));
+        const attachmentLink = note ? isAttachmentLink(note, link.target) : false;
+        const mark = linkMark(config().get<string>(attachmentLink ? 'attachmentMark' : 'linkMark', attachmentLink ? '$(attach)' : '$(link-external)'));
+        const color = attachmentLink ? (config().get<string>('attachmentColor', '') || linkColor) : linkColor;
+        const group = attachmentLink ? 'attachment' : 'link';
+        if (!linkGroups.has(group)) linkGroups.set(group, { mark, color, ranges: [] });
+        linkGroups.get(group)!.ranges.push(new vscode.Range(editor.document.positionAt(link.displayStart), editor.document.positionAt(link.displayEnd)));
         if (link.start < link.displayStart) hidden.push(new vscode.Range(range.start, editor.document.positionAt(link.displayStart)));
         if (link.displayEnd < link.end) hidden.push(new vscode.Range(editor.document.positionAt(link.displayEnd), range.end));
       }
-      const mark = linkMark(config().get<string>('linkMark', '$(link-external)'));
-      if (targets.length) {
+      for (const { mark, color, ranges } of linkGroups.values()) {
         const before: vscode.ThemableDecorationAttachmentRenderOptions | undefined = mark.icon
           ? {
-            contentText: '\u00a0', color: linkColor, width: '1em', height: '1em', margin: '0 0.25em 0 0',
+            contentText: '\u00a0', color, width: '1em', height: '1em', margin: '0 0.25em 0 0',
             textDecoration: `none; display:inline-block; vertical-align:-0.35em; background-color:currentColor; mask:url("${linkIconUri(mark.icon)}") center / contain no-repeat`
           }
-          : mark.text ? { contentText: mark.text, color: linkColor, margin: '0 0.25em 0 0' } : undefined;
+          : mark.text ? { contentText: mark.text, color, margin: '0 0.25em 0 0' } : undefined;
         const decoration = vscode.window.createTextEditorDecorationType({
-          color: linkColor, before
+          color, before
         });
-        decorations.push(decoration); editor.setDecorations(decoration, targets);
+        decorations.push(decoration); editor.setDecorations(decoration, ranges);
       }
       if (hidden.length) {
         const decoration = vscode.window.createTextEditorDecorationType({ textDecoration: 'none; display: none' });
@@ -253,6 +348,63 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   async function ensureAbsent(id: string) {
     try { await vscode.workspace.fs.stat(uri(id)); } catch (error) { if (isMissing(error)) return; throw error; }
     throw new Error('A note with the same name already exists.');
+  }
+  const attachment = (id: string) => notes.flatMap(note => note.attachments ?? []).find(item => item.id === id);
+  async function copyAttachments(noteId: string, sources: vscode.Uri[]): Promise<void> {
+    if (!notes.some(note => note.id === noteId)) return;
+    for (const source of sources) {
+      const name = path.basename(source.fsPath || source.path);
+      if (!name || name === '.' || name === path.sep) continue;
+      await vscode.workspace.fs.copy(source, vscode.Uri.joinPath(uri(noteId), name), { overwrite: false });
+    }
+    await refresh();
+  }
+  async function receiveAttachmentFiles(noteId: string, value: unknown): Promise<void> {
+    if (!notes.some(note => note.id === noteId)) return;
+    if (!Array.isArray(value) || !value.length) throw new Error('No attachment files received.');
+    const entries: { name: string; directory: boolean; data: Uint8Array }[] = [];
+    const seen = new Set<string>();
+    for (const entry of value) {
+      if (!entry || typeof entry.name !== 'string' || !validAttachmentPath(entry.name) || seen.has(entry.name)
+        || (entry.directory !== true && (!Array.isArray(entry.data) || !entry.data.every((byte: unknown) => typeof byte === 'number' && Number.isInteger(byte) && byte >= 0 && byte <= 255)))) {
+        throw new Error('Invalid dropped attachment.');
+      }
+      seen.add(entry.name);
+      entries.push({ name: entry.name, directory: entry.directory === true, data: Uint8Array.from(entry.data ?? []) });
+    }
+    for (const name of new Set(entries.map(entry => entry.name.split('/')[0]))) {
+      try { await vscode.workspace.fs.stat(vscode.Uri.joinPath(uri(noteId), name)); }
+      catch (error) { if (isMissing(error)) continue; throw error; }
+      throw new Error(`Attachment "${name}" already exists.`);
+    }
+    const edit = new vscode.WorkspaceEdit();
+    for (const entry of entries) {
+      if (!entry.directory) edit.createFile(vscode.Uri.joinPath(uri(noteId), entry.name), { contents: entry.data, overwrite: false });
+    }
+    try {
+      if (entries.some(entry => !entry.directory) && !await vscode.workspace.applyEdit(edit)) throw new Error('Could not create attachments.');
+      for (const entry of entries) if (entry.directory) await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(uri(noteId), entry.name));
+    } finally { await refresh(); }
+  }
+  async function addAttachment(note?: Note): Promise<void> {
+    if (!note) return;
+    const sources = await vscode.window.showOpenDialog({ canSelectFiles: true, canSelectFolders: true, canSelectMany: true, openLabel: 'Add Attachment' });
+    if (sources?.length) await copyAttachments(note.id, sources);
+  }
+  async function openAttachment(id: string): Promise<void> {
+    const item = attachment(id);
+    if (!item) return;
+    const target = uri(id);
+    if (item.directory) await vscode.commands.executeCommand('revealFileInOS', target);
+    else await vscode.commands.executeCommand('vscode.open', target);
+  }
+  async function deleteAttachment(id: string): Promise<void> {
+    const item = attachment(id);
+    if (!item) return;
+    if (await vscode.window.showWarningMessage(`Delete attachment "${item.name}"?`, { modal: true }, 'Delete') !== 'Delete') return;
+    const edit = new vscode.WorkspaceEdit(); edit.deleteFile(uri(id), { recursive: item.directory });
+    if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not delete the attachment.');
+    await refresh();
   }
   async function relocate(id: string, destination: string, title?: string) {
     if (id === destination && title === undefined) return;
@@ -308,9 +460,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
       vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
     );
-    const linkCss = `.url{color:${linkColor ?? 'var(--vscode-textLink-foreground)'}}button .url .codicon{color:inherit;font-size:1em;vertical-align:-0.15em;position:static}`;
-    const mark = linkMark(config().get<string>('linkMark', '$(link-external)'));
-    const linkMarkHtml = mark.icon ? `<i class="codicon codicon-${mark.icon}" aria-hidden="true"></i> ` : mark.text ? `${h(mark.text)} ` : '';
+    const attachmentColor = safeColor(config().get<string>('attachmentColor', ''), '');
+    const linkCss = `.url{color:${linkColor ?? 'var(--vscode-textLink-foreground)'}}${attachmentColor ? `.attachment-url{color:${attachmentColor}}` : ''}button .url .codicon{color:inherit;font-size:1em;vertical-align:-0.15em;position:static}`;
+    const linkMarkHtmlFor = (note: Note, link: ReturnType<typeof parseDisplayLinks>[number]): { html: string; attachment: boolean } => {
+      const attachment = isAttachmentLink(note, link.target);
+      const mark = linkMark(config().get<string>(attachment ? 'attachmentMark' : 'linkMark', attachment ? '$(attach)' : '$(link-external)'));
+      return { attachment, html: mark.icon ? `<i class="codicon codicon-${mark.icon}" aria-hidden="true"></i> ` : mark.text ? `${h(mark.text)} ` : '' };
+    };
     const classFor = (tag: string): string => {
       const style = styleFor(tag, styles);
       const color = safeColor(style.color || config().get<string>('tagColor', '#00BFFF'), '#00BFFF');
@@ -338,7 +494,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         html += h(text.slice(cursor, token.start));
         if (token.tag === ':url') {
           const link = urls.find(link => link.start === token.start + offset)!;
-          html += `<span class="url">${linkMarkHtml}${h(link.label)}</span>`;
+          const mark = linkMarkHtmlFor(note, link);
+          html += `<span class="url${mark.attachment ? ' attachment-url' : ''}">${mark.html}${h(link.label)}</span>`;
         } else html += `<span class="${classFor(token.tag)}">${h(text.slice(token.start, token.end))}</span>`;
         cursor = token.end;
       }
@@ -448,6 +605,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
+  command('addAttachment', (n?: Note) => addAttachment(selected(n)));
+  command('dropAttachments', async (noteId: string, values: string[]) => {
+    if (typeof noteId !== 'string' || !Array.isArray(values)) return;
+    await copyAttachments(noteId, values.filter(value => typeof value === 'string').map(droppedUri));
+  });
+  command('dropAttachmentFiles', receiveAttachmentFiles);
+  command('openAttachment', openAttachment);
+  command('deleteAttachment', deleteAttachment);
   command('rename', async (n?: Note) => {
     n = selected(n); if (!n) return;
     const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });

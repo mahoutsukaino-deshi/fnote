@@ -793,3 +793,10 @@ test("directory note links support wiki and Markdown syntax and ignore code and 
   assert.deepEqual(links.map(link => text.slice(link.start, link.end)), ["../旅行/", "../旅行/", "子", "空白"]);
   assert.deepEqual(parseNoteLinks("`[[../旅行/]]`\n```md\n[](../旅行/)\n```\n    [[../旅行/]]\n[](https://example.com/)\n[[//host/]]\n![](../旅行/)"), []);
 });
+test("note links support parentheses in relative file names", () => {
+  const { parseNoteLinks } = require("../dist/core");
+  const text = "[graph](a(new).png)\n[](nested/(preview).png)";
+  const links = parseNoteLinks(text);
+  assert.deepEqual(links.map(link => link.target), ["a(new).png", "nested/(preview).png"]);
+  assert.deepEqual(links.map(link => text.slice(link.start, link.end)), ["graph", "nested/(preview).png"]);
+});

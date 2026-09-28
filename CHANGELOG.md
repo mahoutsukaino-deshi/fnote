@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+## v0.1.6
+
+- Add attachment support for Markdown notes. Files and folders can be copied into a note from the Markdown editor, the note list, or the note menu; attachments are shown in the note list and can be opened or deleted.
+- Add `fnote.attachmentMark` and `fnote.attachmentColor` for customizing attachment icons in the editor and note list.
+- Support relative links to filenames containing parentheses and encode attachment link paths safely.
+
 ## v0.1.5
 
 - Group unfinished time tags such as `@10:00-` under **Incomplete time tags** instead of numeric tags. Select the entry to find unfinished work logs and customize its icon and colors with `fnote.tagStyles`.

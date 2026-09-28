@@ -31,7 +31,8 @@
         const hasChildren = rows.some(row => row.parent === note.id);
         const row = document.createElement('div'); row.className = 'row'; row.dataset.id = note.id;
         row.dataset.outline = String(Boolean(note.noteId));
-        row.draggable = !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
+        row.dataset.attachment = String(Boolean(note.attachment));
+        row.draggable = !note.noteId && !note.attachment; row.style.paddingLeft = `${depth * 16 + 4}px`;
         row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.id;
         if (hasChildren && !collapsed.has(note.id)) hasExpandedBranch = true;
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
@@ -54,9 +55,14 @@
         row.append(label);
         if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);
-        row.onclick = () => { select(note.id, true); send('open', note.id); };
-        row.oncontextmenu = e => { e.preventDefault(); if (tagMode || note.noteId) return; select(note.id, true); showMenu(e.clientX, e.clientY, note.id); };
-        row.ondragstart = e => { if (note.noteId) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
+        row.onclick = () => { select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
+        row.oncontextmenu = e => {
+          e.preventDefault();
+          if (tagMode || note.noteId) return;
+          select(note.id, true);
+          note.attachment ? showAttachmentMenu(e.clientX, e.clientY, note.id) : showMenu(e.clientX, e.clientY, note.id);
+        };
+        row.ondragstart = e => { if (note.noteId || note.attachment) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
     }
@@ -95,14 +101,96 @@
     }
     indicator.classList.add(position);
   }
+  function attachmentTarget(event) {
+    if (tagMode) return;
+    const row = event.target.closest('.row');
+    if (!row || row.dataset.outline === 'true') return;
+    let id = row.dataset.id;
+    while (id) {
+      const current = rows.find(item => item.id === id);
+      if (!current) return;
+      if (!current.attachment) return current.id;
+      id = current.parent;
+    }
+  }
+  function hasExternalFiles(event) {
+    return [...(event.dataTransfer?.types || [])].some(type => ['files', 'text/uri-list', 'text/plain'].includes(String(type).toLowerCase()));
+  }
+  // These handlers only run AFTER the host allows events into the webview.
+  // Shift is still required to re-enable the iframe in WebviewWindowDragMonitor.
+  // VS Code also listens on the webview window. Letting dragenter reach it enables
+  // an overlay that intercepts the subsequent drop and opens the file instead.
+  // Cover the whole document, including empty space crossed before a note row.
+  for (const type of ['dragenter', 'dragover', 'drop']) {
+    document.addEventListener(type, event => {
+      if (tagMode || dragging || !hasExternalFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = attachmentTarget(event) ? 'copy' : 'none';
+    });
+  }
+  function externalUris(event) {
+    const listed = event.dataTransfer?.getData('text/uri-list') || event.dataTransfer?.getData('text/plain') || '';
+    const uris = listed.split(/\r?\n/).map(value => value.trim()).filter(value => value && !value.startsWith('#') && (value.startsWith('file://') || value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)));
+    if (uris.length) return [...new Set(uris)];
+    return [];
+  }
+  async function droppedFiles(dataTransfer) {
+    // File.path is not exposed in a sandboxed webview. Read the File itself.
+    const items = [...(dataTransfer.items || [])];
+    const entries = items.map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+    const files = [...(dataTransfer.files || [])];
+    const result = [];
+    async function readFile(file, name) {
+      result.push({ name, data: Array.from(new Uint8Array(await file.arrayBuffer())) });
+    }
+    async function readEntry(entry, prefix = '') {
+      const name = prefix + entry.name;
+      if (entry.isFile) await readFile(await new Promise((resolve, reject) => entry.file(resolve, reject)), name);
+      else if (entry.isDirectory) {
+        result.push({ name, directory: true });
+        const reader = entry.createReader();
+        for (;;) {
+          const children = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+          if (!children.length) break;
+          for (const child of children) await readEntry(child, name + '/');
+        }
+      }
+    }
+    if (entries.length) for (const entry of entries) await readEntry(entry);
+    else for (const file of files) await readFile(file, file.name);
+    return result;
+  }
   tree.addEventListener('dragover', e => {
-    if (!dragging) return;
+    if (!dragging) {
+      if (!hasExternalFiles(e)) return;
+      const target = attachmentTarget(e);
+      if (!target) return;
+      e.preventDefault(); clearDrop(); e.target.closest('.row').classList.add('inside'); drop = { target, position: 'attachment' }; e.dataTransfer.dropEffect = 'copy';
+      return;
+    }
     e.preventDefault(); locate(e); e.dataTransfer.dropEffect = drop ? 'move' : 'none';
     if (e.clientY < 32) window.scrollBy(0, -12);
     if (e.clientY > window.innerHeight - 32) window.scrollBy(0, 12);
   });
   tree.addEventListener('dragleave', e => { if (!tree.contains(e.relatedTarget)) clearDrop(); });
-  tree.addEventListener('drop', e => {
+  tree.addEventListener('drop', async e => {
+    if (!dragging) {
+      const target = attachmentTarget(e);
+      if (!target || !hasExternalFiles(e)) return;
+      e.preventDefault(); e.stopPropagation();
+      const uris = externalUris(e);
+      try {
+        // Capture file handles before the browser clears the drag data store.
+        const files = await droppedFiles(e.dataTransfer);
+        if (files.length) send('attachmentDrop', target, { files });
+        else if (uris.length) send('attachmentDrop', target, { uris });
+        else send('attachmentDropError', target, { error: 'No readable files were found in the drop.' });
+      } catch (error) {
+        send('attachmentDropError', target, { error: String(error) });
+      } finally { finishDrag(); }
+      return;
+    }
     e.preventDefault(); locate(e);
     if (dragging && drop) send('drop', dragging, drop);
     finishDrag();
@@ -111,10 +199,17 @@
   document.addEventListener('dragend', finishDrag);
   function showMenu(x, y, id) {
     menu.replaceChildren();
-    for (const [command, title] of [['addChild', 'Add Child Note'], ['rename', 'Rename'], ['move', 'Move'], ['up', 'Move Up'], ['down', 'Move Down'], ['delete', 'Delete']]) {
+    for (const [command, title] of [['addChild', 'Add Child Note'], ['addAttachment', 'Add Attachment'], ['rename', 'Rename'], ['move', 'Move'], ['up', 'Move Up'], ['down', 'Move Down'], ['delete', 'Delete']]) {
       const button = document.createElement('button'); button.textContent = title; button.setAttribute('role', 'menuitem');
       button.onclick = () => { menu.hidden = true; send('command', id, { command }); }; menu.append(button);
     }
+    menu.hidden = false; menu.style.left = `${Math.max(0, Math.min(x, innerWidth - menu.offsetWidth))}px`; menu.style.top = `${Math.max(0, Math.min(y, innerHeight - menu.offsetHeight))}px`;
+    menu.firstChild.focus();
+  }
+  function showAttachmentMenu(x, y, id) {
+    menu.replaceChildren();
+    const button = document.createElement('button'); button.textContent = 'Delete Attachment'; button.setAttribute('role', 'menuitem');
+    button.onclick = () => { menu.hidden = true; send('command', id, { command: 'deleteAttachment' }); }; menu.append(button);
     menu.hidden = false; menu.style.left = `${Math.max(0, Math.min(x, innerWidth - menu.offsetWidth))}px`; menu.style.top = `${Math.max(0, Math.min(y, innerHeight - menu.offsetHeight))}px`;
     menu.firstChild.focus();
   }
@@ -129,12 +224,12 @@
     if (e.key === 'Home') next = visible[0]; if (e.key === 'End') next = visible.at(-1);
     if (next) { e.preventDefault(); select(next.dataset.id, true); send('select', next.dataset.id); }
     if (!current) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send('open', current.id); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send(current.attachment ? 'openAttachment' : 'open', current.id); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); if (!collapsed.has(current.id) && rows.some(row => row.parent === current.id)) { collapsed.add(current.id); persist(); render(); select(current.id, true); } else if (current.parent) { select(current.parent, true); send('select', current.parent); } }
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
-    if (!tagMode && !current.noteId && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
-    if (!tagMode && !current.noteId && e.key === 'Delete') send('command', current.id, { command: 'delete' });
-    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); showMenu(rect.left, rect.bottom, current.id); }
+    if (!tagMode && !current.noteId && !current.attachment && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
+    if (!tagMode && !current.noteId && e.key === 'Delete') send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' });
+    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); current.attachment ? showAttachmentMenu(rect.left, rect.bottom, current.id) : showMenu(rect.left, rect.bottom, current.id); }
   });
   window.addEventListener('message', e => {
     const message = e.data;

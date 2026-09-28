@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "maoren",
   "engines": {
     "vscode": "^1.85.0"
@@ -53,6 +53,11 @@
         "command": "fnote.addChild",
         "title": "fnote: Add Child Note",
         "icon": "$(new-file)"
+      },
+      {
+        "command": "fnote.addAttachment",
+        "title": "fnote: Add Attachment",
+        "icon": "$(attach)"
       },
       {
         "command": "fnote.rename",
@@ -182,6 +187,17 @@
           "type": "string",
           "default": "$(link-external)",
           "description": "Link icon in the note editor and tag/search results. Use a bundled Codicon such as $(link-external) or $(globe), text, or an emoji. An empty string hides the icon. Unknown Codicon names fall back to link-external."
+        },
+        "fnote.attachmentMark": {
+          "type": "string",
+          "default": "$(attach)",
+          "description": "Attachment icon in the note editor and note list. Use a bundled Codicon such as $(attach), text, or an emoji. An empty string hides the icon."
+        },
+        "fnote.attachmentColor": {
+          "type": "string",
+          "default": "",
+          "description": "Attachment icon color in the note editor and note list. An empty string uses the current text color.",
+          "format": "color"
         },
         "fnote.tagColor": {
           "type": "string",

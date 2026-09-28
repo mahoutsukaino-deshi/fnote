@@ -49,11 +49,14 @@ export function parseDisplayLinks(text: string): DisplayLink[] {
         cursor = close + 1;
       } else {
         let depth = 0;
-        while (cursor < masked.length && !/[ \t\r\n)]/.test(masked[cursor])) {
+        while (cursor < masked.length) {
           if (masked[cursor] === '(') depth++;
+          else if (masked[cursor] === ')') {
+            if (depth === 0) break;
+            depth--;
+          } else if (/[ \t\r\n]/.test(masked[cursor]) && depth === 0) break;
           cursor++;
         }
-        while (depth > 0 && masked[cursor] === ')') { depth--; cursor++; }
         targetEnd = cursor;
       }
       if (targetEnd <= targetStart) continue;
@@ -89,23 +92,20 @@ export function parseDisplayLinks(text: string): DisplayLink[] {
 
 // Find link candidates; the provider resolves relative files and note directories.
 export function parseNoteLinks(text: string, includeExternal = false): { target: string; start: number; end: number }[] {
-  const result: { target: string; start: number; end: number }[] = [];
-  const pattern = /(?<!!)(\[\[([^\]\r\n]+)\]\]|\[[^\]\r\n]*\]\(\s*(<[^>\r\n]+>|[^\s()]+)\s*\))/g;
-  for (const match of maskCode(text).matchAll(pattern)) {
-    const preceding = text.slice(0, match.index).match(/\\+$/)?.[0].length ?? 0;
-    if (preceding % 2) continue;
-    const raw = match[2] ?? match[3];
-    const target = raw.startsWith('<') ? raw.slice(1, -1) : raw;
+  return parseDisplayLinks(text).flatMap(link => {
+    // parseDisplayLinks already handles balanced parentheses in destinations.
+    // Restrict its result to wiki and Markdown links; bare URLs and autolinks
+    // are not file links handled by this provider.
+    const source = text.slice(link.start, link.end);
+    if (!source.startsWith('[')) return [];
+    const target = link.target;
     const external = /^[a-z][a-z\d+.-]*:/i.test(target);
-    if (!target || target.startsWith('/') || (external && !includeExternal) || (!external && /[?#]/.test(target))) continue;
-    const destinationOffset = match[2] !== undefined ? 2 : match[0].indexOf('](') + 2;
-    const start = match.index + match[0].indexOf(raw, destinationOffset);
-    const name = match[3] !== undefined ? match[0].slice(1, match[0].indexOf('](')) : '';
-    result.push({ target, start: name ? match.index + 1 : start, end: name ? match.index + 1 + name.length : start + raw.length });
-  }
-  return result;
+    if (!target || target.startsWith('/') || (external && !includeExternal) || (!external && /[?#]/.test(target))) return [];
+    return [{ target, start: link.displayStart, end: link.displayEnd }];
+  });
 }
-export interface Note extends TaggedNote { parent: string; name: string; text: string }
+export interface Attachment { id: string; parent: string; name: string; directory: boolean }
+export interface Note extends TaggedNote { parent: string; name: string; text: string; attachments?: Attachment[] }
 export interface ContentMatch { text: string; start: number }
 export interface NoteSearchMatch { note: Note; lines: ContentMatch[] }
 export interface HeadingMatch { title: string; start: number; matched: boolean; lines: ContentMatch[]; children: HeadingMatch[] }

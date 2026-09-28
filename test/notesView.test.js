@@ -6,11 +6,12 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 function setup(tagMode = false) {
-  const sent = [], listeners = new Map();
+  const sent = [], listeners = new Map(), documentListeners = new Map();
   let document;
   class Element {
     children = []; dataset = {}; style = {}; handlers = {}; classes = new Set();
-    classList = { toggle: (key, active) => active ? this.classes.add(key) : this.classes.delete(key) };
+    classList = { toggle: (key, active) => active ? this.classes.add(key) : this.classes.delete(key),
+      add: (...keys) => keys.forEach(key => this.classes.add(key)), remove: (...keys) => keys.forEach(key => this.classes.delete(key)) };
     append(...children) { for (const child of children) { child.parent = this; this.children.push(child); } }
     contains(element) { return element === this || this.children.some(child => child.contains(element)); }
     replaceChildren() {
@@ -20,6 +21,7 @@ function setup(tagMode = false) {
     setAttribute() {}
     focus() { document.activeElement = this; }
     scrollIntoView() {}
+    closest(selector) { return selector === '.row' && this.className === 'row' ? this : this.parent?.closest(selector); }
     querySelectorAll() { return this.children.filter(child => child.className === 'row'); }
     querySelector() { return this.children.find(child => child.classes.has('selected')); }
     addEventListener(type, fn) { this.handlers[type] = fn; }
@@ -27,13 +29,55 @@ function setup(tagMode = false) {
   const tree = new Element(), menu = new Element(), body = new Element();
   body.dataset.tags = String(tagMode);
   document = { body, activeElement: body, getElementById: id => id === 'tree' ? tree : menu,
-    createElement: () => new Element(), addEventListener() {} };
+    createElement: () => new Element(), addEventListener: (type, fn) => documentListeners.set(type, fn) };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {
     document, window: { scrollY: 0, scrollTo() {}, addEventListener: (type, fn) => listeners.set(type, fn) },
     acquireVsCodeApi: () => ({ getState: () => ({}), setState() {}, postMessage: msg => sent.push(msg) })
   });
-  return { document, body, tree, sent, message: data => listeners.get('message')({ data }) };
+  return { document, body, tree, sent, documentListeners, message: data => listeners.get('message')({ data }) };
 }
+
+test('after the host delivers a Shift-drag, webview events do not reactivate its drop overlay', async () => {
+  const { tree, body, sent, message, documentListeners } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  let hostDragMessages = 0;
+  async function dispatch(type, target) {
+    // This models events inside the iframe, not the host's Shift gate.
+    const event = { target, shiftKey: true, defaultPrevented: false, stopped: false,
+      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; },
+      dataTransfer: { types: ['Files'], items: [{ kind: 'file' }], getData: () => '',
+        files: [{ name: 'test.txt', arrayBuffer: async () => new ArrayBuffer(0) }] } };
+    if (tree.contains(target)) await tree.handlers[type]?.(event);
+    if (!event.stopped) await documentListeners.get(type)?.(event);
+    // Model VS Code's bubbling window listeners: dragover forwards even when
+    // defaultPrevented, whereas dragenter checks it before enabling the overlay.
+    if (!event.stopped && (type === 'dragover' || (type === 'dragenter' && !event.defaultPrevented))) hostDragMessages++;
+    assert.ok(event.defaultPrevented && event.stopped, type);
+    return event;
+  }
+  for (const target of [body, tree, tree.children[0], tree.children[0].children[1]]) {
+    await dispatch('dragenter', target);
+    const event = await dispatch('dragover', target);
+    assert.equal(event.dataTransfer.dropEffect, target.closest('.row') ? 'copy' : 'none');
+  }
+  await dispatch('drop', body);
+  assert.ok(!sent.some(item => item.type === 'attachmentDrop'), 'empty space has no implicit destination');
+  await dispatch('drop', tree.children[0]);
+  assert.equal(sent.find(item => item.type === 'attachmentDrop').id, 'note');
+  assert.equal(hostDragMessages, 0);
+});
+
+test('external drop guards leave tag views and internal note drags unchanged', () => {
+  for (const tagMode of [false, true]) {
+    const { tree, message, documentListeners } = setup(tagMode);
+    message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+    if (!tagMode) tree.children[0].ondragstart({ dataTransfer: { setData() {} } });
+    for (const type of ['dragenter', 'dragover', 'drop']) {
+      documentListeners.get(type)({ target: tree.children[0], dataTransfer: { types: ['Files'] },
+        preventDefault() { assert.fail('must not intercept'); }, stopPropagation() { assert.fail('must not intercept'); } });
+    }
+  }
+});
 
 test('一覧の再描画後もフォーカスを維持し、F2は選択中の親ノートだけを対象にする', () => {
   const { document, body, tree, sent, message } = setup();
@@ -53,6 +97,46 @@ test('一覧の再描画後もフォーカスを維持し、F2は選択中の親
   document.activeElement = body;
   message({ type: 'notes', rows, selected: 'parent' });
   assert.equal(document.activeElement, body, '本文での編集中に一覧へフォーカスを奪わない');
+});
+
+test('OS files without a path or URI are sent as bytes, including empty files', async () => {
+  const { tree, sent, message } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  let prevented = false;
+  const event = { target: tree.children[0], preventDefault() { prevented = true; }, stopPropagation() {},
+    dataTransfer: { types: ['Files'], getData: () => '', files: [
+      { name: '旅行(3.png', arrayBuffer: async () => Uint8Array.from([0, 255, 128, 1]).buffer },
+      { name: 'empty.txt', arrayBuffer: async () => new ArrayBuffer(0) },
+    ] } };
+  tree.handlers.dragover(event);
+  assert.ok(prevented);
+  assert.equal(event.dataTransfer.dropEffect, 'copy');
+  await tree.handlers.drop(event);
+  const drop = sent.find(item => item.type === 'attachmentDrop');
+  assert.equal(drop.id, 'note');
+  assert.equal(JSON.stringify(drop.files), JSON.stringify([
+    { name: '旅行(3.png', data: [0, 255, 128, 1] }, { name: 'empty.txt', data: [] },
+  ]));
+});
+
+test('folder drops read all directory batches and retain relative paths', async () => {
+  const { tree, sent, message } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  const file = name => ({ name, isFile: true, file: resolve => resolve({ arrayBuffer: async () => new ArrayBuffer(0) }) });
+  const batches = [[file('one.txt')], [file('two.txt')], []];
+  await tree.handlers.drop({ target: tree.children[0], preventDefault() {}, stopPropagation() {},
+    dataTransfer: { types: ['Files'], getData: () => '', files: [], items: [{ webkitGetAsEntry: () => ({
+      name: 'assets', isDirectory: true, createReader: () => ({ readEntries: resolve => resolve(batches.shift()) }),
+    }) }] } });
+  assert.equal(JSON.stringify(sent.find(item => item.type === 'attachmentDrop').files.map(file => file.name)),
+    JSON.stringify(['assets', 'assets/one.txt', 'assets/two.txt']));
+});
+
+test('tag view never accepts attachment drops', async () => {
+  const { tree, sent, message } = setup(true);
+  message({ type: 'notes', rows: [{ id: 'tag', parent: '', label: 'Tag' }] });
+  await tree.handlers.drop({ target: tree.children[0], dataTransfer: { types: ['Files'] } });
+  assert.ok(!sent.some(item => item.type === 'attachmentDrop'));
 });
 
 for (const tagMode of [false, true]) test(`${tagMode ? 'タグ' : 'ノート'}一覧: 全閉時のみ展開ボタンへ切り替える`, () => {

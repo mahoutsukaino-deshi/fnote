@@ -2,10 +2,9 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## Unreleased
+## v0.1.7
 
 - Allow `fnote.storagePath` to be set in workspace settings and support `${workspace}/` and `${workspaceFolder}/` path variables.
-
 - Add a dedicated Fnote view container to the activity bar with its own icon, moving the notes and tags views out of Explorer.
 
 ## v0.1.6

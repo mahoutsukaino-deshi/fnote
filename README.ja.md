@@ -39,7 +39,7 @@ VS Codeの拡張機能画面で `fnote` を検索し、発行元が **maoren** �
 
 ## 最初のノートを作る
 
-1. エクスプローラーを開き、**Fnote - List** の **＋** をクリックします。
+1. アクティビティバーの **Fnote** を開き、**Fnote - List** の **＋** をクリックします。
 2. ノート名に「今日の作業」と入力します。
 3. 開いたノートに、次の例を入力して保存します（Windows / Linux：`Ctrl+S`、macOS：`Cmd+S`）。
 
@@ -222,13 +222,15 @@ VS Codeの設定画面を開き、検索欄に **`@ext:maoren.fnote`** と入力
 
 既定の保存先はホームフォルダー内の **`.fnote`** です。すべてのワークスペースで共通のノートを使用します。
 
-**ユーザー設定**に絶対パス、または `~/` から始まるパスを指定し、コマンドパレットの **Developer: Reload Window**（ウィンドウの再読み込み）を実行してください。ワークスペース設定では保存先を変更できません。
+**ユーザー設定またはワークスペース設定**に絶対パス、`~/` から始まるパス、または `${workspace}/.fnote` を指定し、コマンドパレットの **Developer: Reload Window**（ウィンドウの再読み込み）を実行してください。`${workspace}` と `${workspaceFolder}` は最初のワークスペースフォルダを表します。
 
 ```json
 {
-  "fnote.storagePath": "~/Documents/fnote"
+  "fnote.storagePath": "${workspace}/.fnote"
 }
 ```
+
+全ワークスペースで共通の保存先にする場合は、絶対パスまたは `~/` から始まるパス（例：`"fnote.storagePath": "~/Documents/fnote"`）を指定してください。
 
 Windowsの絶対パスは、たとえば `"C:/Users/your-name/Documents/fnote"` のように指定できます。
 
@@ -238,7 +240,7 @@ Windowsの絶対パスは、たとえば `"C:/Users/your-name/Documents/fnote"` 
 
 | 設定                       | 既定値                            | 用途                               |
 |----------------------------|-----------------------------------|------------------------------------|
-| `fnote.storagePath`        | `~/.fnote`                        | ノートの保存先                     |
+| `fnote.storagePath`        | `~/.fnote`                        | ノートの保存先（`${workspace}/`に対応） |
 | `fnote.untaggedNoteMark`   | `$(note)`                         | アイコン候補のタグがないノートの印 |
 | `fnote.defaultTagMark`     | `$(circle-filled-compact)`        | 個別の印がないタグの既定アイコン   |
 | `fnote.tagColor`           | `#00BFFF`                         | タグの既定文字色                   |

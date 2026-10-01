@@ -10,6 +10,7 @@
 !dist/notesView.js
 !media/notes.js
 !media/icon.png
+!media/fnote.svg
 !media/screenshots/**
 
 !media/codicons/**

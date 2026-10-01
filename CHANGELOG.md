@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- Allow `fnote.storagePath` to be set in workspace settings and support `${workspace}/` and `${workspaceFolder}/` path variables.
+
+- Add a dedicated Fnote view container to the activity bar with its own icon, moving the notes and tags views out of Explorer.
+
 ## v0.1.6
 
 - Add attachment support for Markdown notes. Files and folders can be copied into a note from the Markdown editor, the note list, or the note menu; attachments are shown in the note list and can be opened or deleted.

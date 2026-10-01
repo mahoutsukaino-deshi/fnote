@@ -25,8 +25,17 @@
     "package:marketplace": "node -e \"require('node:fs').mkdirSync('artifacts',{recursive:true})\" && vsce package --no-dependencies --skip-license --githubBranch main --out artifacts/fnote.vsix"
   },
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fnote",
+          "title": "Fnote",
+          "icon": "media/fnote.svg"
+        }
+      ]
+    },
     "views": {
-      "explorer": [
+      "fnote": [
         {
           "id": "fnote.notes",
           "name": "fnote - list",

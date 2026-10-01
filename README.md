@@ -39,7 +39,7 @@ Search for `fnote` in the VS Code Extensions view and install the extension publ
 
 ## Create your first note
 
-1. Open Explorer and click **＋** in **Fnote - List**.
+1. Open the **Fnote** view from the activity bar, then click **＋** in **Fnote - List**.
 2. Name the note “Today's work”.
 3. Enter the following example in the note and save it (`Ctrl+S` on Windows / Linux, `Cmd+S` on macOS).
 

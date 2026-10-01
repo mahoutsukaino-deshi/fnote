@@ -220,13 +220,15 @@ Selecting “Status” in the tag list shows notes matching any of its child tag
 
 The default location is **`.fnote`** in your home folder. The same notes are shared across all workspaces.
 
-Set an absolute path or a path starting with `~/` in your **user settings**, then run **Developer: Reload Window** from the Command Palette. The storage location cannot be changed through workspace settings.
+Set an absolute path or a path starting with `~/` in your user or workspace settings, then run **Developer: Reload Window** from the Command Palette. Use `${workspace}/` or `${workspaceFolder}/` to store notes inside the first workspace folder.
 
 ```json
 {
-  "fnote.storagePath": "~/Documents/fnote"
+  "fnote.storagePath": "${workspace}/.fnote"
 }
 ```
+
+For a shared location, use an absolute path or `~/`, for example `"fnote.storagePath": "~/Documents/fnote"`.
 
 On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/fnote"`.
 
@@ -236,7 +238,7 @@ On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/
 
 | Setting                    | Default                               | Purpose                                          |
 |----------------------------|---------------------------------------|--------------------------------------------------|
-| `fnote.storagePath`        | `~/.fnote`                            | Note storage location                            |
+| `fnote.storagePath`        | `~/.fnote`                            | Note storage location; supports `${workspace}/`   |
 | `fnote.untaggedNoteMark`   | `$(note)`                             | Icon for notes with no eligible tag icon         |
 | `fnote.defaultTagMark`     | `$(circle-filled-compact)`            | Default icon for tags without an individual icon |
 | `fnote.tagColor`           | `#00BFFF`                             | Default tag text color                           |

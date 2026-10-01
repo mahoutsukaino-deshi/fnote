@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+- `fnote.storagePath`をワークスペース設定で指定可能にし、`${workspace}/`と`${workspaceFolder}/`のパス変数に対応。
+
 - アクティビティバーにFnote専用アイコンとビュー領域を追加し、ノート一覧とタグ一覧をエクスプローラーから移動。
 
 ## v0.1.6

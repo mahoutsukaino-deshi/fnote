@@ -37,12 +37,25 @@ function isAttachmentLink(note: Note, target: string): boolean {
   return (note.attachments ?? []).some(item => item.id === `${note.id}/${relative}`);
 }
 
+function resolveStoragePath(setting: string, workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined): string | undefined {
+  const workspacePath = workspaceFolders?.[0]?.uri.fsPath;
+  if (/\$\{workspace(?:Folder)?\}/.test(setting) && !workspacePath) return undefined;
+  const expanded = setting.replace(/\$\{workspace(?:Folder)?\}/g, workspacePath ?? '');
+  if (expanded === '~') return os.homedir();
+  if (expanded.startsWith('~/')) return path.join(os.homedir(), expanded.slice(2));
+  return expanded;
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const config = () => vscode.workspace.getConfiguration('fnote');
-  const setting = config().inspect<string>('storagePath')?.globalValue ?? '~/.fnote';
-  const storagePath = setting === '~' ? os.homedir() : setting.startsWith('~/') ? path.join(os.homedir(), setting.slice(2)) : setting;
+  const setting = config().get<string>('storagePath', '~/.fnote');
+  const storagePath = resolveStoragePath(setting, vscode.workspace.workspaceFolders);
+  if (storagePath === undefined) {
+    void vscode.window.showErrorMessage('fnote.storagePath uses ${workspace}, but no workspace folder is open.');
+    return;
+  }
   if (storagePath && !path.isAbsolute(storagePath)) {
-    void vscode.window.showErrorMessage('Set fnote.storagePath in user settings to an absolute path or a path starting with ~/. Leave it empty to use the extension storage location.');
+    void vscode.window.showErrorMessage('Set fnote.storagePath to an absolute path, a path starting with ~/, or ${workspace}/... . Leave it empty to use the extension storage location.');
     return;
   }
   const root = storagePath ? vscode.Uri.file(storagePath) : vscode.Uri.joinPath(context.globalStorageUri, 'notes');

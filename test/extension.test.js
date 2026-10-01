@@ -1222,6 +1222,23 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;
+    const workspaceRoot = path.join(temp, "workspace-root");
+    api.workspace.workspaceFolders = [{ uri: uri(workspaceRoot) }];
+    settings.set("storagePath", "${workspace}/.fnote");
+    await activate(context);
+    assert.equal(
+      views.get("fnote.notes").treeDataProvider.getChildren().length,
+      0,
+      "workspace storage starts empty",
+    );
+    inputs.push("ワークスペースノート");
+    await run("add");
+    assert.equal(
+      await fs.readFile(path.join(workspaceRoot, ".fnote/ワークスペースノート/index.md"), "utf8"),
+      "# ワークスペースノート\n\n",
+    );
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
     // A user-specified absolute directory is independent of the workspace, too.
     const custom = path.join(temp, "custom-notes");
     settings.set("storagePath", custom);

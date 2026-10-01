@@ -179,8 +179,8 @@
         "fnote.storagePath": {
           "type": "string",
           "default": "~/.fnote",
-          "scope": "machine",
-          "description": "Shared note storage for all workspaces. Set an absolute path or a path starting with ~/ in user settings. An empty string uses the extension storage location. Reload the window after changing this setting. Existing notes are not moved automatically."
+          "scope": "resource",
+          "description": "Note storage location. Set an absolute path, a path starting with ~/, or ${workspace}/.fnote in user or workspace settings. ${workspace} and ${workspaceFolder} refer to the first workspace folder. An empty string uses the extension storage location. Reload the window after changing this setting. Existing notes are not moved automatically."
         },
         "fnote.untaggedNoteMark": {
           "type": "string",

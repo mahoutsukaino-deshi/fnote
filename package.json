@@ -60,33 +60,50 @@
       },
       {
         "command": "fnote.addChild",
-        "title": "fnote: Add Child Note",
+        "title": "Add Child Note",
+        "category": "fnote",
         "icon": "$(new-file)"
       },
       {
         "command": "fnote.addAttachment",
-        "title": "fnote: Add Attachment",
+        "title": "Add Attachment",
+        "category": "fnote",
         "icon": "$(attach)"
       },
       {
         "command": "fnote.rename",
-        "title": "fnote: Rename"
+        "title": "Rename",
+        "category": "fnote",
+        "icon": "$(edit)"
       },
       {
         "command": "fnote.move",
-        "title": "fnote: Move"
+        "title": "Move",
+        "category": "fnote",
+        "icon": "$(folder)"
       },
       {
         "command": "fnote.up",
-        "title": "fnote: Move Up"
+        "title": "Move Up",
+        "category": "fnote",
+        "icon": "$(arrow-up)"
       },
       {
         "command": "fnote.down",
-        "title": "fnote: Move Down"
+        "title": "Move Down",
+        "category": "fnote",
+        "icon": "$(arrow-down)"
       },
       {
         "command": "fnote.delete",
-        "title": "fnote: Delete",
+        "title": "Delete",
+        "category": "fnote",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "title": "Delete Attachment",
+        "category": "fnote",
         "icon": "$(trash)"
       },
       {
@@ -170,6 +187,48 @@
           "command": "fnote.closeAllNotes",
           "when": "view == fnote.notes",
           "group": "navigation@4"
+        }
+      ],
+      "webview/context": [
+        {
+          "command": "fnote.addChild",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "fnote.addAttachment",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "fnote.rename",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "2_rename@1"
+        },
+        {
+          "command": "fnote.move",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "2_move@1"
+        },
+        {
+          "command": "fnote.up",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "3_reorder@1"
+        },
+        {
+          "command": "fnote.down",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "3_reorder@2"
+        },
+        {
+          "command": "fnote.delete",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fnote.deleteAttachment",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'attachment'",
+          "group": "9_delete@1"
         }
       ]
     },

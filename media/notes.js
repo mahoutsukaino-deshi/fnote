@@ -1,7 +1,6 @@
 (() => {
   const api = acquireVsCodeApi();
   const tree = document.getElementById('tree');
-  const menu = document.getElementById('menu');
   const tagMode = document.body.dataset.tags === 'true';
   const saved = api.getState() || {};
   let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
@@ -56,13 +55,16 @@
         if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);
         row.onclick = () => { select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
-        row.oncontextmenu = e => {
-          e.preventDefault();
+        row.dataset.vscodeContext = JSON.stringify({
+          webviewSection: note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
+          preventDefaultContextMenuItems: true,
+        });
+        row.oncontextmenu = () => {
           if (tagMode || note.noteId) return;
           select(note.id, true);
-          note.attachment ? showAttachmentMenu(e.clientX, e.clientY, note.id) : showMenu(e.clientX, e.clientY, note.id);
+          send('select', note.id);
         };
-        row.ondragstart = e => { if (note.noteId || note.attachment) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); menu.hidden = true; select(note.id); };
+        row.ondragstart = e => { if (note.noteId || note.attachment) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
     }
@@ -197,24 +199,7 @@
   });
   function finishDrag() { dragging = undefined; clearDrop(); document.getElementById('root-drop').textContent = ''; if (pending) { rows = pending; pending = undefined; render(); } }
   document.addEventListener('dragend', finishDrag);
-  function showMenu(x, y, id) {
-    menu.replaceChildren();
-    for (const [command, title] of [['addChild', 'Add Child Note'], ['addAttachment', 'Add Attachment'], ['rename', 'Rename'], ['move', 'Move'], ['up', 'Move Up'], ['down', 'Move Down'], ['delete', 'Delete']]) {
-      const button = document.createElement('button'); button.textContent = title; button.setAttribute('role', 'menuitem');
-      button.onclick = () => { menu.hidden = true; send('command', id, { command }); }; menu.append(button);
-    }
-    menu.hidden = false; menu.style.left = `${Math.max(0, Math.min(x, innerWidth - menu.offsetWidth))}px`; menu.style.top = `${Math.max(0, Math.min(y, innerHeight - menu.offsetHeight))}px`;
-    menu.firstChild.focus();
-  }
-  function showAttachmentMenu(x, y, id) {
-    menu.replaceChildren();
-    const button = document.createElement('button'); button.textContent = 'Delete Attachment'; button.setAttribute('role', 'menuitem');
-    button.onclick = () => { menu.hidden = true; send('command', id, { command: 'deleteAttachment' }); }; menu.append(button);
-    menu.hidden = false; menu.style.left = `${Math.max(0, Math.min(x, innerWidth - menu.offsetWidth))}px`; menu.style.top = `${Math.max(0, Math.min(y, innerHeight - menu.offsetHeight))}px`;
-    menu.firstChild.focus();
-  }
-  document.addEventListener('click', e => { if (!menu.contains(e.target)) menu.hidden = true; });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { menu.hidden = true; clearDrop(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') clearDrop(); });
   tree.addEventListener('keydown', e => {
     const visible = [...tree.querySelectorAll('.row')];
     const current = rows.find(row => row.id === selected); const index = visible.findIndex(row => row.dataset.id === selected);
@@ -229,7 +214,11 @@
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
     if (!tagMode && !current.noteId && !current.attachment && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
     if (!tagMode && !current.noteId && e.key === 'Delete') send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' });
-    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) { e.preventDefault(); const rect = visible[index].getBoundingClientRect(); current.attachment ? showAttachmentMenu(rect.left, rect.bottom, current.id) : showMenu(rect.left, rect.bottom, current.id); }
+    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) {
+      e.preventDefault();
+      const rect = visible[index].getBoundingClientRect();
+      visible[index].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: rect.left, clientY: rect.bottom }));
+    }
   });
   window.addEventListener('message', e => {
     const message = e.data;

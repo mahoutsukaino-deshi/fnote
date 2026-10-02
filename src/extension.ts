@@ -348,7 +348,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const note = notes.find(n => n.id === id);
     if (note) await tree.reveal(note);
   }
-  const selected = (n?: Note) => n || tree.selection[0];
+  const selected = (n?: Note) => notes.find(note => note.id === n?.id) || tree.selection[0];
   async function add(parent = '') {
     const name = await vscode.window.showInputBox({ prompt: 'Note name', validateInput: validateName });
     if (!name) return;
@@ -411,7 +411,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (item.directory) await vscode.commands.executeCommand('revealFileInOS', target);
     else await vscode.commands.executeCommand('vscode.open', target);
   }
-  async function deleteAttachment(id: string): Promise<void> {
+  async function deleteAttachment(id?: string): Promise<void> {
+    if (!id) return;
     const item = attachment(id);
     if (!item) return;
     if (await vscode.window.showWarningMessage(`Delete attachment "${item.name}"?`, { modal: true }, 'Delete') !== 'Delete') return;
@@ -625,7 +626,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   command('dropAttachmentFiles', receiveAttachmentFiles);
   command('openAttachment', openAttachment);
-  command('deleteAttachment', deleteAttachment);
+  command('deleteAttachment', (id?: string) => deleteAttachment(typeof id === 'string' ? id : tree.selectedAttachmentId));
   command('rename', async (n?: Note) => {
     n = selected(n); if (!n) return;
     const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });

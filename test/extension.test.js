@@ -1127,7 +1127,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.doesNotMatch(html, /class="work-time"/);
     await fs.writeFile(
       path.join(temp, ".fnote/音楽/曲/index.md"),
-      "@2026/09/13 @10m @TODO",
+      "@2026/09/13 @10m @TODO\n[音楽](../)\n[資料](../資料.txt)",
+    );
+    await fs.writeFile(
+      path.join(temp, ".fnote/音楽/index.md"),
+      "# 音楽\n[曲](曲/)\n",
     );
     await run("refresh");
     await run("filter", "2026/09/13");
@@ -1153,6 +1157,18 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     picks.push({ id: "" });
     await run("move", child);
     assert.equal(provider.getChildren().length, 2);
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/音楽/index.md"), "utf8"),
+      /\[曲\]\(\.\.\/曲\/\)/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/曲/index.md"), "utf8"),
+      /\[音楽\]\(\.\.\/音楽\/\)/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/曲/index.md"), "utf8"),
+      /\[資料\]\(\.\.\/音楽\/資料\.txt\)/,
+    );
     child = provider.getChildren().find((n) => n.id === "曲");
     inputs.push("音楽");
     await run("rename", child);
@@ -1163,6 +1179,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(
       await fs.readFile(path.join(temp, ".fnote/新しい曲/index.md"), "utf8"),
       /@TODO/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/新しい曲/index.md"), "utf8"),
+      /\[音楽\]\(\.\.\/音楽\/\)/,
     );
     await run("delete", renamed);
     assert.equal(provider.getChildren().length, 1);

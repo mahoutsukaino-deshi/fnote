@@ -439,10 +439,47 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not delete the attachment.');
     await refresh();
   }
+  async function updateNoteLinks(edit: vscode.WorkspaceEdit, id: string, destination: string): Promise<void> {
+    const moved = notes.filter(note => within(note.id, id));
+    const movedIds = new Map(moved.map(note => [note.id, destination + note.id.slice(id.length)]));
+    const attachmentIds = new Set(notes.flatMap(note => (note.attachments ?? []).map(attachment => attachment.id)));
+    for (const source of notes) {
+      const document = await vscode.workspace.openTextDocument(file(source.id));
+      const text = document.getText();
+      const newSource = movedIds.get(source.id) ?? source.id;
+      const sourceMoved = movedIds.has(source.id);
+      for (const link of parseDisplayLinks(text).reverse()) {
+        const sourceText = text.slice(link.start, link.end);
+        if (!sourceText.startsWith('[') || link.target.startsWith('/') || /[?#]/.test(link.target) || /^[a-z][a-z\d+.-]*:/i.test(link.target)) continue;
+        let decoded: string;
+        try { decoded = decodeURIComponent(link.target); } catch { continue; }
+        const resolved = path.posix.normalize(path.posix.join(source.id, decoded));
+        const explicitIndex = decoded === 'index.md' || decoded.endsWith('/index.md');
+        const targetId = resolved.endsWith('/index.md')
+          ? resolved.slice(0, -'/index.md'.length)
+          : resolved.replace(/\/+$/, '');
+        const oldTarget = notes.find(note => note.id === targetId);
+        if (!oldTarget && !attachmentIds.has(targetId)) continue;
+        const oldTargetPath = oldTarget
+          ? explicitIndex ? `${oldTarget.id}/index.md` : oldTarget.id
+          : targetId;
+        const targetMoved = within(oldTargetPath, id);
+        if (sourceMoved === targetMoved) continue;
+        const newTarget = targetMoved ? destination + oldTargetPath.slice(id.length) : oldTargetPath;
+        const trailingSlash = decoded.endsWith('/');
+        let replacement = path.posix.relative(newSource, newTarget) || (explicitIndex ? 'index.md' : '.');
+        if (trailingSlash && !replacement.endsWith('/')) replacement += '/';
+        if (link.target.startsWith('./') && !replacement.startsWith('.')) replacement = `./${replacement}`;
+        if (/%[\da-f]{2}/i.test(link.target)) replacement = replacement.split('/').map(part => encodeURIComponent(part)).join('/');
+        if (replacement !== link.target) edit.replace(document.uri, new vscode.Range(document.positionAt(link.targetStart), document.positionAt(link.targetEnd)), replacement);
+      }
+    }
+  }
   async function relocate(id: string, destination: string, title?: string) {
     if (id === destination && title === undefined) return;
     if (id !== destination) await ensureAbsent(destination);
     const edit = new vscode.WorkspaceEdit();
+    if (id !== destination) await updateNoteLinks(edit, id, destination);
     if (title !== undefined) {
       const doc = await vscode.workspace.openTextDocument(file(id));
       const text = doc.getText();

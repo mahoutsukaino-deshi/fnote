@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { NotesView } from './notesView';
-import type { DropPosition } from './notesView';
+import type { DropPosition, NoteEdit } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
@@ -171,7 +171,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), () => {
     const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
-  });
+  }, applyNoteEdit);
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
   const hierarchy = () => config().get<TagHierarchy>('tagHierarchy', {});
   const sortedTags = (nodes: Iterable<TagNode>) => [...nodes].sort((a, b) => {
@@ -350,13 +350,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   const selected = (n?: Note) => notes.find(note => note.id === n?.id) || tree.selection[0];
   async function add(parent = '') {
+    if (await tree.startCreate(parent)) return;
     const name = await vscode.window.showInputBox({ prompt: 'Note name', validateInput: validateName });
-    if (!name) return;
+    if (name) await applyNoteEdit({ mode: 'create', parent, name });
+  }
+  async function createNote(parent: string, name: string): Promise<void> {
     const id = parent ? `${parent}/${name}` : name;
     await ensureAbsent(id);
     await vscode.workspace.fs.createDirectory(uri(id));
     await vscode.workspace.fs.writeFile(file(id), Buffer.from(`# ${name}\n\n`));
     await refresh(); await open(id);
+  }
+  async function applyNoteEdit(edit: NoteEdit): Promise<void> {
+    const validation = validateName(edit.name);
+    if (validation) throw new Error(validation);
+    if (edit.mode === 'create') {
+      const parent = edit.parent ?? '';
+      if (parent && !notes.some(note => note.id === parent)) throw new Error('The parent note no longer exists.');
+      await createNote(parent, edit.name);
+      return;
+    }
+    const note = notes.find(item => item.id === edit.id);
+    if (!note) return;
+    const destination = note.parent ? `${note.parent}/${edit.name}` : edit.name;
+    await relocate(note.id, destination, edit.name);
+    const renamed = notes.find(item => item.id === destination);
+    if (renamed) await tree.reveal(renamed);
   }
   async function ensureAbsent(id: string) {
     try { await vscode.workspace.fs.stat(uri(id)); } catch (error) { if (isMissing(error)) return; throw error; }
@@ -618,7 +637,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
-  command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
+  command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return add(n?.id ?? ''); });
   command('addAttachment', (n?: Note) => addAttachment(selected(n)));
   command('dropAttachments', async (noteId: string, values: string[]) => {
     if (typeof noteId !== 'string' || !Array.isArray(values)) return;
@@ -629,13 +648,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('deleteAttachment', (id?: string) => deleteAttachment(typeof id === 'string' ? id : tree.selectedAttachmentId));
   command('rename', async (n?: Note) => {
     n = selected(n); if (!n) return;
+    if (await tree.startRename(n.id)) return;
     const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });
-    if (name) {
-      const destination = n.parent ? `${n.parent}/${name}` : name;
-      await relocate(n.id, destination, name);
-      const renamed = notes.find(note => note.id === destination);
-      if (renamed) await tree.reveal(renamed);
-    }
+    if (name) await applyNoteEdit({ mode: 'rename', id: n.id, name });
   });
   command('move', async (n?: Note) => {
     n = selected(n); if (!n) return;

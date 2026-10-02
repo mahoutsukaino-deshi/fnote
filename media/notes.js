@@ -5,7 +5,7 @@
   const saved = api.getState() || {};
   let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
   const dateBranches = new Set(saved.dateBranches || []);
-  let dragging, drop, pending;
+  let dragging, drop, pending, editing, editInput;
   const within = (id, parent) => {
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
@@ -20,10 +20,48 @@
       if (active && focus) row.focus();
     }
   }
+  function beginEdit(request) {
+    editing = { ...request, busy: false };
+    if (editing.mode === 'create' && editing.parent) collapsed.delete(editing.parent);
+    if (editing.mode === 'rename') {
+      let parent = rows.find(row => row.id === editing.id)?.parent;
+      while (parent) { collapsed.delete(parent); parent = rows.find(row => row.id === parent)?.parent; }
+    }
+    persist(); render();
+    editInput?.focus(); editInput?.select();
+  }
+  function finishEdit(commit) {
+    if (!editing || editing.busy) return;
+    if (!commit) { editing = undefined; render(); return; }
+    const name = editInput?.value ?? '';
+    if (!name) { editing = undefined; render(); return; }
+    editing.busy = true;
+    editInput.disabled = true;
+    api.postMessage({ type: 'edit', mode: editing.mode, id: editing.id, parent: editing.parent, name });
+  }
+  function addInlineEditor(row, value) {
+    const input = document.createElement('input');
+    input.className = 'inline-input'; input.type = 'text'; input.value = value;
+    input.setAttribute('aria-label', editing.mode === 'create' ? 'New note name' : 'Note name');
+    input.onclick = e => e.stopPropagation(); input.onmousedown = e => e.stopPropagation();
+    input.onkeydown = e => {
+      if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); }
+      if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
+    };
+    input.onblur = () => finishEdit(true);
+    row.append(input); editInput = input;
+  }
+  function addCreateRow(parent, depth) {
+    const row = document.createElement('div'); row.className = 'row editing';
+    row.dataset.id = '\0editing'; row.dataset.outline = 'false'; row.dataset.attachment = 'false';
+    row.style.paddingLeft = `${depth * 16 + 4}px`; row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1));
+    const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1; toggle.textContent = '';
+    row.append(toggle); addInlineEditor(row, ''); tree.append(row);
+  }
   function render() {
     const scroll = window.scrollY;
     const hadFocus = tree.contains(document.activeElement);
-    tree.replaceChildren();
+    tree.replaceChildren(); editInput = undefined;
     let hasExpandedBranch = false;
     function branch(parent, depth) {
       for (const note of rows.filter(row => row.parent === parent)) {
@@ -43,16 +81,21 @@
         row.append(toggle);
         const appearance = collapsed.has(note.id) ? note.collapsedAppearance : note.appearance;
         const icon = /^\$\(([a-z0-9-]+)\)$/.exec(appearance?.mark || '');
-        if (icon) {
-          const mark = document.createElement('span');
-          mark.className = `note-icon codicon codicon-${icon[1]}`;
-          mark.setAttribute('aria-hidden', 'true');
-          if (appearance.color) mark.style.color = appearance.color;
-          if (label.textContent.startsWith(appearance.mark + ' ')) label.textContent = label.textContent.slice(appearance.mark.length + 1);
-          row.append(mark);
+        if (icon && label.textContent.startsWith(appearance.mark + ' ')) label.textContent = label.textContent.slice(appearance.mark.length + 1);
+        const renaming = editing?.mode === 'rename' && editing.id === note.id;
+        if (!renaming) {
+          if (icon) {
+            const mark = document.createElement('span');
+            mark.className = `note-icon codicon codicon-${icon[1]}`;
+            mark.setAttribute('aria-hidden', 'true');
+            if (appearance.color) mark.style.color = appearance.color;
+            row.append(mark);
+          }
+          row.append(label);
+          if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
+        } else {
+          row.classList.add('editing'); addInlineEditor(row, label.textContent);
         }
-        row.append(label);
-        if (note.description) { const count = document.createElement('span'); count.textContent = note.description; count.style.cssText = 'margin-left:8px;opacity:.7'; row.append(count); }
         tree.append(row);
         row.onclick = () => { select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
         row.dataset.vscodeContext = JSON.stringify({
@@ -67,6 +110,7 @@
         row.ondragstart = e => { if (note.noteId || note.attachment) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
+      if (editing?.mode === 'create' && editing.parent === parent) addCreateRow(parent, depth);
     }
     branch('', 0);
     if (!rows.length) {
@@ -222,6 +266,16 @@
   });
   window.addEventListener('message', e => {
     const message = e.data;
+    if (message.type === 'edit') {
+      beginEdit(message);
+      return;
+    }
+    if (message.type === 'editResult' && editing) {
+      if (message.ok) { editing = undefined; render(); }
+      else if (!editing.busy) return;
+      else { editing.busy = false; editInput.disabled = false; editInput.focus(); editInput.select(); }
+      return;
+    }
     if (message.type === 'notes' && tagMode) {
       for (const row of message.rows) {
         if (!/^\d{4}(?:\/\d{2})?$/.test(row.id) || !message.rows.some(child => child.parent === row.id)) continue;

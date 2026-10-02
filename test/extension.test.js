@@ -549,6 +549,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         set html(value) { sidebarHtml = value; },
         postMessage: async (message) => {
           if (message.type === "notes") noteRows = message.rows;
+          if (message.type === "edit") {
+            const name = inputs.shift();
+            if (name !== undefined) await sidebarMessage({ ...message, name });
+          }
         },
         onDidReceiveMessage: (handler) => {
           sidebarMessage = handler;
@@ -558,6 +562,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.match(sidebarHtml, /id="attachment-hint">Attach files: hold Shift and drop onto a note\./);
     assert.match(sidebarHtml, /aria-describedby="attachment-hint"/);
+    await sidebarMessage({ type: "ready" });
     await sidebarMessage({
       type: "expansionState",
       allCollapsed: false,

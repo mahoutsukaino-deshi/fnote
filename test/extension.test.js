@@ -560,8 +560,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         },
       },
     });
-    assert.match(sidebarHtml, /id="attachment-hint">Attach files: hold Shift and drop onto a note\./);
-    assert.match(sidebarHtml, /aria-describedby="attachment-hint"/);
+    assert.doesNotMatch(sidebarHtml, /attachment-hint|Attach files: hold Shift and drop onto a note\./);
     await sidebarMessage({ type: "ready" });
     await sidebarMessage({
       type: "expansionState",

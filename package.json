@@ -146,6 +146,53 @@
         "icon": "$(close-all)"
       }
     ],
+    "keybindings": [
+      {
+        "command": "fnote.addChild",
+        "key": "cmd+n",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.addChild",
+        "key": "ctrl+n",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.add",
+        "key": "cmd+n",
+        "when": "isMac && webviewId == 'fnote.notes' && (webviewSection == 'attachment' || !webviewSection)"
+      },
+      {
+        "command": "fnote.add",
+        "key": "ctrl+n",
+        "when": "!isMac && webviewId == 'fnote.notes' && (webviewSection == 'attachment' || !webviewSection)"
+      },
+      {
+        "command": "fnote.rename",
+        "key": "f2",
+        "when": "webviewId == 'fnote.notes' && (webviewSection == 'note' || webviewSection == 'attachment')"
+      },
+      {
+        "command": "fnote.delete",
+        "key": "cmd+backspace",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.delete",
+        "key": "delete",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "key": "cmd+backspace",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "key": "delete",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
+      }
+    ],
     "menus": {
       "view/title": [
         {
@@ -202,7 +249,7 @@
         },
         {
           "command": "fnote.rename",
-          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "when": "webviewId == 'fnote.notes' && (webviewSection == 'note' || webviewSection == 'attachment')",
           "group": "2_rename@1"
         },
         {

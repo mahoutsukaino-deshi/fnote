@@ -11,6 +11,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private view?: vscode.WebviewView;
   private current: Note[] = [];
   private selectedId?: string;
+  private activeId?: string;
   private outline: OutlineRow[] = [];
   private subscriptions: vscode.Disposable[] = [];
   constructor(
@@ -37,7 +38,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async reveal(note: Note): Promise<void> {
     this.selectedId = note.id;
-    await this.view?.webview.postMessage({ type: 'select', id: note.id });
+    this.activeId = note.id;
+    await this.view?.webview.postMessage({ type: 'select', id: note.id, active: true });
   }
   async startCreate(parent = ''): Promise<boolean> {
     return this.startEdit({ mode: 'create', parent });
@@ -81,7 +83,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
       const item = await this.data.getTreeItem(note);
       return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, collapsedLabel: this.collapsedLabel?.(note), appearance: this.appearance?.(note, false), collapsedAppearance: this.appearance?.(note, true) };
     }));
-    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows, ...attachmentRows], selected: this.selectedId });
+    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows, ...attachmentRows], selected: this.selectedId, active: this.activeId });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -92,7 +94,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     const script = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'notes.js'));
     const iconCss = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'codicons', 'codicon.css'));
     webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">
-body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-foreground,var(--fnote-fallback-foreground));margin:0;color:var(--fnote-foreground);background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}body.vscode-light,body.vscode-high-contrast-light{--fnote-fallback-foreground:#333333}body.vscode-dark,body.vscode-high-contrast{--fnote-fallback-foreground:#cccccc}#tree{color:var(--fnote-foreground);min-height:100vh;padding:2px 0 36px;box-sizing:border-box;outline:none}.row{color:var(--fnote-foreground);height:22px;display:flex;align-items:center;box-sizing:border-box;position:relative;white-space:nowrap;cursor:default}.row:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--fnote-foreground))}.row[data-outline="true"]:not(.selected){color:var(--vscode-descriptionForeground,var(--fnote-foreground))}.row.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}.row:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px}.row .note-icon{flex:none;margin-right:5px}.row .label{color:inherit;overflow:hidden;text-overflow:ellipsis}.toggle{flex:none;width:20px;padding:0;background:none;border:0;color:inherit;font:inherit;height:22px;cursor:pointer}.before::before,.after::after{content:'';position:absolute;height:2px;left:0;right:0;background:var(--vscode-list-dropBetweenBackground,var(--vscode-focusBorder));z-index:2}.before::before{top:0}.after::after{bottom:0}.inside{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px;background:var(--vscode-list-dropBackground)}#root-drop{height:24px;margin:0 8px;color:var(--vscode-descriptionForeground);font-size:11px}#root-drop.over{border-top:2px solid var(--vscode-focusBorder)}#hint{padding:8px;color:var(--vscode-descriptionForeground)}.inline-input{flex:1;min-width:0;height:22px;box-sizing:border-box;padding:1px 4px;border:1px solid var(--vscode-focusBorder);border-radius:0;color:var(--vscode-input-foreground);background:var(--vscode-input-background);font:inherit;outline:none}
+body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-foreground,var(--fnote-fallback-foreground));margin:0;color:var(--fnote-foreground);background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}body.vscode-light,body.vscode-high-contrast-light{--fnote-fallback-foreground:#333333}body.vscode-dark,body.vscode-high-contrast{--fnote-fallback-foreground:#cccccc}#tree{color:var(--fnote-foreground);min-height:100vh;padding:2px 0 36px;box-sizing:border-box;outline:none}.row{color:var(--fnote-foreground);height:22px;display:flex;align-items:center;box-sizing:border-box;position:relative;white-space:nowrap;cursor:default}.row:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--fnote-foreground))}.row[data-outline="true"]:not(.selected){color:var(--vscode-descriptionForeground,var(--fnote-foreground))}.row.active{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}#tree:focus-within .row.active.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}.row:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px}.row .note-icon{flex:none;margin-right:5px}.row .label{color:inherit;overflow:hidden;text-overflow:ellipsis}.toggle{flex:none;width:20px;padding:0;background:none;border:0;color:inherit;font:inherit;height:22px;cursor:pointer}.before::before,.after::after{content:'';position:absolute;height:2px;left:0;right:0;background:var(--vscode-list-dropBetweenBackground,var(--vscode-focusBorder));z-index:2}.before::before{top:0}.after::after{bottom:0}.inside{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px;background:var(--vscode-list-dropBackground)}#root-drop{height:24px;margin:0 8px;color:var(--vscode-descriptionForeground);font-size:11px}#root-drop.over{border-top:2px solid var(--vscode-focusBorder)}#hint{padding:8px;color:var(--vscode-descriptionForeground)}.inline-input{flex:1;min-width:0;height:22px;box-sizing:border-box;padding:1px 4px;border:1px solid var(--vscode-focusBorder);border-radius:0;color:var(--vscode-input-foreground);background:var(--vscode-input-background);font:inherit;outline:none}
 </style></head><body data-tags="${this.tagMode}"><div id="tree" role="tree" aria-label="${this.tagMode ? 'Tags' : 'Notes'}" tabindex="0"></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
     this.subscriptions.push(webview.onDidReceiveMessage(async (message: unknown) => {
       if (!message || typeof message !== 'object' || !('type' in message)) return;
@@ -134,6 +136,11 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           }
           return;
         }
+        if (!this.tagMode && message.type === 'command' && 'command' in message && message.command === 'add'
+          && (!('id' in message) || message.id === undefined)) {
+          await vscode.commands.executeCommand('fnote.add');
+          return;
+        }
         if ('id' in message && typeof message.id === 'string') {
           if (!this.tagMode && this.current.some(note => note.id === message.id) && message.type === 'attachmentDropError') {
             throw new Error('Could not read dropped attachments: ' + ('error' in message ? String(message.error) : 'Unknown error'));
@@ -146,22 +153,33 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
             return;
           }
           const attachment = this.current.flatMap(note => note.attachments ?? []).find(item => item.id === message.id);
-          if (attachment) {
+          if (attachment && message.type !== 'drop') {
             this.selectedId = attachment.id;
-            if (message.type === 'openAttachment') await vscode.commands.executeCommand('fnote.openAttachment', attachment.id);
+            if (message.type === 'openAttachment') this.activeId = attachment.id;
+            if (message.type === 'openAttachment') {
+              await vscode.commands.executeCommand('fnote.openAttachment', attachment.id);
+              await this.view?.webview.postMessage({ type: 'select', id: attachment.id, active: true, focus: true });
+            }
+            if (message.type === 'command' && 'command' in message && message.command === 'rename') await this.startRename(attachment.id);
             if (message.type === 'command' && 'command' in message && message.command === 'deleteAttachment') await vscode.commands.executeCommand('fnote.deleteAttachment', attachment.id);
+            if (message.type === 'command' && 'command' in message && message.command === 'add') await vscode.commands.executeCommand('fnote.add');
             return;
           }
           const heading = this.outline.find(row => row.id === message.id);
           if (heading) {
             this.selectedId = heading.noteId;
+            if (message.type === 'open') this.activeId = heading.noteId;
             if (message.type === 'open') await vscode.commands.executeCommand('fnote.open', heading.noteId, heading.offset, true);
             return;
           }
         }
-        if (!('id' in message) || typeof message.id !== 'string' || !this.current.some(note => note.id === message.id)) return;
+        if (!('id' in message) || typeof message.id !== 'string') return;
+        const messageNote = this.current.find(note => note.id === message.id);
+        const messageAttachment = this.current.flatMap(note => note.attachments ?? []).find(item => item.id === message.id);
+        if (!messageNote && !messageAttachment) return;
         this.selectedId = message.id;
         if (message.type === 'open') {
+          this.activeId = message.id;
           if (this.tagMode) await vscode.commands.executeCommand('fnote.filter', message.id);
           else await vscode.commands.executeCommand('fnote.open', message.id, undefined, true);
         }
@@ -170,7 +188,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
         }
         if (message.type === 'drop' && 'position' in message && ['before', 'after', 'inside'].includes(String(message.position))) {
           const target = 'target' in message && typeof message.target === 'string' ? message.target : undefined;
-          if (target !== undefined && !this.current.some(note => note.id === target)) return;
+          if (target !== undefined && !this.current.some(note => note.id === target || (note.attachments ?? []).some(item => item.id === target))) return;
           await this.onDrop(message.id, target, message.position as DropPosition);
         }
       } catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }

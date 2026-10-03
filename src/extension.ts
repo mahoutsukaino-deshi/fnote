@@ -162,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   let dropQueue = Promise.resolve();
   const tree = new NotesView(provider, context.extensionUri, (id, target, position) => {
-    const operation = dropQueue.catch(() => {}).then(() => dropNote(id, target, position));
+    const operation = dropQueue.catch(() => {}).then(() => dropItem(id, target, position));
     dropQueue = operation;
     return operation;
   }, false, note => {
@@ -371,7 +371,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     const note = notes.find(item => item.id === edit.id);
-    if (!note) return;
+    if (!note) {
+      const item = attachment(edit.id ?? '');
+      if (!item) return;
+      await relocate(item.id, `${item.parent}/${edit.name}`);
+      return;
+    }
     const destination = note.parent ? `${note.parent}/${edit.name}` : edit.name;
     await relocate(note.id, destination, edit.name);
     const renamed = notes.find(item => item.id === destination);
@@ -440,8 +445,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await refresh();
   }
   async function updateNoteLinks(edit: vscode.WorkspaceEdit, id: string, destination: string): Promise<void> {
-    const moved = notes.filter(note => within(note.id, id));
-    const movedIds = new Map(moved.map(note => [note.id, destination + note.id.slice(id.length)]));
+    const movedPaths = [
+      ...notes.filter(note => within(note.id, id)).map(note => note.id),
+      ...notes.flatMap(note => note.attachments ?? []).filter(item => within(item.id, id)).map(item => item.id),
+    ];
+    const movedIds = new Map(movedPaths.map(source => [source, destination + source.slice(id.length)]));
     const attachmentIds = new Set(notes.flatMap(note => (note.attachments ?? []).map(attachment => attachment.id)));
     for (const source of notes) {
       const document = await vscode.workspace.openTextDocument(file(source.id));
@@ -510,6 +518,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await refresh();
     const moved = notes.find(note => note.id === plan.destination);
     if (moved) await tree.reveal(moved);
+  }
+  async function dropAttachment(id: string, target: string | undefined, position: DropPosition): Promise<void> {
+    const source = attachment(id);
+    if (!source) throw new Error('Source attachment not found.');
+    const targetNote = target ? notes.find(note => note.id === target) : undefined;
+    const targetAttachment = target ? attachment(target) : undefined;
+    if (target !== undefined && !targetNote && !targetAttachment) throw new Error('Destination not found.');
+    if (target && within(target, id)) throw new Error('Cannot move an attachment into itself or its descendants.');
+    if (position === 'inside' && targetAttachment && !targetAttachment.directory) throw new Error('A file cannot contain an attachment.');
+    const parent = target
+      ? position === 'inside' ? target : targetNote?.parent ?? targetAttachment?.parent
+      : undefined;
+    if (!parent) throw new Error('Attachments must be moved into a note or attachment folder.');
+    const destination = `${parent}/${source.name}`;
+    if (destination === id) return;
+    if (notes.some(note => note.id === destination) || attachment(destination)) throw new Error('An item with the same name already exists.');
+    await relocate(id, destination);
+    await refresh();
+  }
+  async function dropItem(id: string, target: string | undefined, position: DropPosition): Promise<void> {
+    if (attachment(id)) await dropAttachment(id, target, position);
+    else await dropNote(id, target, position);
   }
   function renderResults() {
     if (!panel || (!activeTag && !activeQuery)) return;
@@ -684,6 +714,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('openAttachment', openAttachment);
   command('deleteAttachment', (id?: string) => deleteAttachment(typeof id === 'string' ? id : tree.selectedAttachmentId));
   command('rename', async (n?: Note) => {
+    if (!n) {
+      const attachmentId = tree.selectedAttachmentId;
+      if (attachmentId && await tree.startRename(attachmentId)) return;
+    }
     n = selected(n); if (!n) return;
     if (await tree.startRename(n.id)) return;
     const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });

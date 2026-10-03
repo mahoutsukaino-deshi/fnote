@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function setup(tagMode = false) {
+function setup(tagMode = false, platform = '') {
   const sent = [], listeners = new Map(), documentListeners = new Map();
   let document;
   class Element {
@@ -20,6 +20,7 @@ function setup(tagMode = false) {
     }
     setAttribute() {}
     focus() { document.activeElement = this; }
+    select() {}
     scrollIntoView() {}
     closest(selector) { return selector === '.row' && this.className === 'row' ? this : this.parent?.closest(selector); }
     querySelectorAll() { return this.children.filter(child => child.className === 'row'); }
@@ -32,6 +33,7 @@ function setup(tagMode = false) {
     createElement: () => new Element(), addEventListener: (type, fn) => documentListeners.set(type, fn) };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {
     document, window: { scrollY: 0, scrollTo() {}, addEventListener: (type, fn) => listeners.set(type, fn) },
+    navigator: { platform },
     acquireVsCodeApi: () => ({ getState: () => ({}), setState() {}, postMessage: msg => sent.push(msg) })
   });
   return { document, body, tree, sent, documentListeners, message: data => listeners.get('message')({ data }) };
@@ -77,6 +79,88 @@ test('external drop guards leave tag views and internal note drags unchanged', (
         preventDefault() { assert.fail('must not intercept'); }, stopPropagation() { assert.fail('must not intercept'); } });
     }
   }
+});
+
+test('添付ファイルもノート一覧からドラッグできる', () => {
+  const { tree, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'note', parent: '', label: 'Note' },
+    { id: 'note/file.txt', parent: 'note', label: 'file.txt', attachment: true, directory: false },
+  ] });
+  const row = tree.children.find(item => item.dataset.id === 'note/file.txt');
+  assert.equal(row.draggable, true);
+  let dragged;
+  row.ondragstart({ dataTransfer: { effectAllowed: '', setData(type, value) { dragged = { type, value }; } } });
+  assert.deepEqual(dragged, { type: 'text/plain', value: 'note/file.txt' });
+});
+
+test('ノート名の入力中はIME確定キーと矢印キーで編集を確定しない', () => {
+  const { tree, sent, message } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  message({ type: 'edit', mode: 'create', parent: '' });
+  const input = tree.children.find(row => row.dataset.id === '\0editing').children[1];
+  input.value = '新しいノート';
+  let stopped = 0;
+  input.onkeydown({ key: 'ArrowDown', stopPropagation() { stopped++; } });
+  input.onkeydown({ key: 'Enter', isComposing: true, keyCode: 229, preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.equal(stopped, 2);
+  assert.equal(sent.some(item => item.type === 'edit'), false);
+  input.onkeydown({ key: 'Enter', isComposing: false, keyCode: 13, preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.equal(sent.at(-1).type, 'edit');
+  assert.equal(sent.at(-1).name, '新しいノート');
+});
+
+test('ノート一覧のショートカットを選択対象に応じて送信する', () => {
+  const { tree, sent, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'note', parent: '', label: 'Note' },
+    { id: 'note/file.txt', parent: 'note', label: 'file.txt', attachment: true, directory: false },
+  ] });
+  const event = (key, modifiers = {}) => tree.handlers.keydown({ key, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...modifiers, preventDefault() {}, stopPropagation() {} });
+  tree.children.find(row => row.dataset.id === 'note').onclick();
+  event('n', { ctrlKey: true });
+  assert.equal(sent.at(-1).command, 'addChild');
+  tree.children.find(row => row.dataset.id === 'note/file.txt').onclick();
+  event('F2');
+  assert.equal(sent.at(-1).command, 'rename');
+  event('Delete');
+  assert.equal(sent.at(-1).command, 'deleteAttachment');
+  event('Backspace', { metaKey: true });
+  assert.equal(sent.at(-1).command, 'deleteAttachment');
+  const root = setup(false, 'MacIntel');
+  root.message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  root.tree.handlers.keydown({ key: 'n', metaKey: false, ctrlKey: true, altKey: false, shiftKey: false, preventDefault() {}, stopPropagation() {} });
+  assert.equal(root.sent.some(item => item.command === 'add'), false);
+  root.tree.handlers.keydown({ key: 'n', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, preventDefault() {}, stopPropagation() {} });
+  assert.equal(root.sent.at(-1).command, 'add');
+});
+
+test('表示中のノートと上下キーの選択を別々に保持する', () => {
+  const { tree, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'open', parent: '', label: 'Open' },
+    { id: 'next', parent: '', label: 'Next' },
+  ], selected: 'open', active: 'open' });
+  const open = tree.children.find(row => row.dataset.id === 'open');
+  const next = tree.children.find(row => row.dataset.id === 'next');
+  assert.ok(open.classes.has('active'));
+  assert.ok(open.classes.has('selected'));
+  tree.handlers.keydown({ key: 'ArrowDown', preventDefault() {}, stopPropagation() {} });
+  assert.ok(open.classes.has('active'));
+  assert.ok(!open.classes.has('selected'));
+  assert.ok(!next.classes.has('active'));
+  assert.ok(next.classes.has('selected'));
+});
+
+test('添付ファイルを開いた後も一覧にフォーカスを戻せる', () => {
+  const { document, tree, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'note', parent: '', label: 'Note' },
+    { id: 'note/file.txt', parent: 'note', label: 'file.txt', attachment: true, directory: false },
+  ], selected: 'note/file.txt', active: 'note/file.txt' });
+  message({ type: 'select', id: 'note/file.txt', active: true, focus: true });
+  assert.equal(document.activeElement.dataset.id, 'note/file.txt');
+  assert.ok(tree.children.some(row => row.dataset.id === 'note/file.txt'));
 });
 
 test('一覧の再描画後もフォーカスを維持し、F2は選択中の親ノートだけを対象にする', () => {

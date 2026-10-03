@@ -2,15 +2,16 @@
   const api = acquireVsCodeApi();
   const tree = document.getElementById('tree');
   const tagMode = document.body.dataset.tags === 'true';
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
   const saved = api.getState() || {};
-  let rows = [], selected = saved.selected, collapsed = new Set(saved.collapsed || []);
+  let rows = [], selected = saved.selected, active = saved.active, collapsed = new Set(saved.collapsed || []);
   const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pending, editing, editInput;
   const within = (id, parent) => {
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
   };
-  const persist = () => api.setState({ selected, collapsed: [...collapsed], dateBranches: [...dateBranches] });
+  const persist = () => api.setState({ selected, active, collapsed: [...collapsed], dateBranches: [...dateBranches] });
   const send = (type, id, rest = {}) => api.postMessage({ type, id, ...rest });
   function select(id, focus = false) {
     selected = id; persist();
@@ -19,6 +20,10 @@
       row.classList.toggle('selected', active); row.setAttribute('aria-selected', String(active)); row.tabIndex = active ? 0 : -1;
       if (active && focus) row.focus();
     }
+  }
+  function setActive(id) {
+    active = id; persist();
+    for (const row of tree.querySelectorAll('.row')) row.classList.toggle('active', row.dataset.id === id);
   }
   function beginEdit(request) {
     editing = { ...request, busy: false };
@@ -43,9 +48,13 @@
     const input = document.createElement('input');
     input.className = 'inline-input'; input.type = 'text'; input.value = value;
     input.setAttribute('aria-label', editing.mode === 'create' ? 'New note name' : 'Note name');
+    let composing = false;
+    input.oncompositionstart = () => { composing = true; };
+    input.oncompositionend = () => { composing = false; };
     input.onclick = e => e.stopPropagation(); input.onmousedown = e => e.stopPropagation();
     input.onkeydown = e => {
-      if (e.key === 'Enter') { e.preventDefault(); finishEdit(true); }
+      e.stopPropagation();
+      if (e.key === 'Enter' && !composing && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); finishEdit(true); }
       if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
     };
     input.onblur = () => finishEdit(true);
@@ -66,10 +75,10 @@
     function branch(parent, depth) {
       for (const note of rows.filter(row => row.parent === parent)) {
         const hasChildren = rows.some(row => row.parent === note.id);
-        const row = document.createElement('div'); row.className = 'row'; row.dataset.id = note.id;
+        const row = document.createElement('div'); row.className = 'row'; row.classList.toggle('active', note.id === active); row.dataset.id = note.id;
         row.dataset.outline = String(Boolean(note.noteId));
         row.dataset.attachment = String(Boolean(note.attachment));
-        row.draggable = !note.noteId && !note.attachment; row.style.paddingLeft = `${depth * 16 + 4}px`;
+        row.draggable = !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
         row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.id;
         if (hasChildren && !collapsed.has(note.id)) hasExpandedBranch = true;
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
@@ -97,7 +106,7 @@
           row.classList.add('editing'); addInlineEditor(row, label.textContent);
         }
         tree.append(row);
-        row.onclick = () => { select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
+        row.onclick = () => { setActive(note.id); select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
         row.dataset.vscodeContext = JSON.stringify({
           webviewSection: note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
           preventDefaultContextMenuItems: true,
@@ -107,7 +116,7 @@
           select(note.id, true);
           send('select', note.id);
         };
-        row.ondragstart = e => { if (note.noteId || note.attachment) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); select(note.id); };
+        row.ondragstart = e => { if (note.noteId) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); select(note.id); };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
       if (editing?.mode === 'create' && editing.parent === parent) addCreateRow(parent, depth);
@@ -128,18 +137,22 @@
     clearDrop();
     if (!dragging) return;
     const row = e.target.closest('.row');
+    const source = rows.find(item => item.id === dragging);
     if (!row) {
+      if (source?.attachment) return;
       drop = { target: undefined, position: 'inside' };
       const rootDrop = document.getElementById('root-drop'); rootDrop.classList.add('over'); rootDrop.textContent = (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level');
       return;
     }
     const target = row.dataset.id;
-    if (rows.find(item => item.id === target)?.noteId) return;
+    const targetRow = rows.find(item => item.id === target);
+    if (!targetRow || targetRow.noteId || (!source?.attachment && targetRow.attachment)) return;
     if (within(target, dragging)) return;
     if (tagMode && rows.find(item => item.id === target)?.parent !== rows.find(item => item.id === dragging)?.parent) return;
     const bounds = row.getBoundingClientRect();
     const ratio = (e.clientY - bounds.top) / bounds.height;
     const position = tagMode ? (ratio < 0.5 ? 'before' : 'after') : ratio < 0.25 ? 'before' : ratio > 0.75 ? 'after' : 'inside';
+    if (source?.attachment && position === 'inside' && targetRow.attachment && !targetRow.directory) return;
     drop = { target, position };
     let indicator = row;
     if (position === 'after') {
@@ -252,12 +265,24 @@
     if (e.key === 'ArrowUp') next = visible[Math.max(index - 1, 0)];
     if (e.key === 'Home') next = visible[0]; if (e.key === 'End') next = visible.at(-1);
     if (next) { e.preventDefault(); select(next.dataset.id, true); send('select', next.dataset.id); }
+    const newNoteKey = !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'n'
+      && (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
+    if (!tagMode && newNoteKey) {
+      e.preventDefault(); e.stopPropagation();
+      if (current && !current.noteId && !current.attachment) send('command', current.id, { command: 'addChild' });
+      else if (current?.attachment) send('command', current.id, { command: 'add' });
+      else api.postMessage({ type: 'command', command: 'add' });
+      return;
+    }
     if (!current) return;
-    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); send(current.attachment ? 'openAttachment' : 'open', current.id); }
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(current.id); send(current.attachment ? 'openAttachment' : 'open', current.id); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); if (!collapsed.has(current.id) && rows.some(row => row.parent === current.id)) { collapsed.add(current.id); persist(); render(); select(current.id, true); } else if (current.parent) { select(current.parent, true); send('select', current.parent); } }
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
-    if (!tagMode && !current.noteId && !current.attachment && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
-    if (!tagMode && !current.noteId && e.key === 'Delete') send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' });
+    if (!tagMode && !current.noteId && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
+    const deleteKey = isMac
+      ? e.metaKey && !e.ctrlKey && e.key === 'Backspace'
+      : !e.metaKey && !e.ctrlKey && e.key === 'Delete';
+    if (!tagMode && !current.noteId && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' }); }
     if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) {
       e.preventDefault();
       const rect = visible[index].getBoundingClientRect();
@@ -283,7 +308,7 @@
       }
       persist();
     }
-    if (message.type === 'notes') { if (dragging) { pending = message.rows; return; } rows = message.rows; selected = message.selected ?? selected; render(); }
+    if (message.type === 'notes') { if (dragging) { pending = message.rows; return; } rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render(); }
     if (message.type === 'expandAll') {
       collapsed.clear(); persist(); render();
     }
@@ -295,7 +320,8 @@
     if (message.type === 'select') {
       let id = message.id;
       while ((id = rows.find(row => row.id === id)?.parent)) collapsed.delete(id);
-      selected = message.id; persist(); render();
+      selected = message.id; if (message.active) active = message.id; persist(); render();
+      if (message.focus) select(message.id, true);
       tree.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
     }
   });

@@ -1,7 +1,5 @@
 # fnote
 
-[日本語](README.ja.md) · [Release notes](CHANGELOG.md)
-
 **Write in Markdown. Organize in a hierarchy. Find with tags.**
 
 fnote brings notes and work logs into VS Code. Keep project notes together and find tasks or records across notes without leaving your editor.

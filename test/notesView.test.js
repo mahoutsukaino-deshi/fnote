@@ -110,6 +110,14 @@ test('ノート名の入力中はIME確定キーと矢印キーで編集を確�
   assert.equal(sent.at(-1).name, '新しいノート');
 });
 
+test('リネーム入力では標準のコピー操作を有効にする', () => {
+  const { tree, message } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  message({ type: 'edit', mode: 'rename', id: 'note' });
+  const input = tree.children.find(row => row.dataset.id === 'note').children[1];
+  assert.deepEqual(JSON.parse(input.dataset.vscodeContext), { preventDefaultContextMenuItems: false });
+});
+
 test('ノート一覧のショートカットを選択対象に応じて送信する', () => {
   const { tree, sent, message } = setup();
   message({ type: 'notes', rows: [

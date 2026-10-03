@@ -48,6 +48,9 @@
     const input = document.createElement('input');
     input.className = 'inline-input'; input.type = 'text'; input.value = value;
     input.setAttribute('aria-label', editing.mode === 'create' ? 'New note name' : 'Note name');
+    // The row disables VS Code's default context-menu items for its custom
+    // actions. Keep the standard editing actions available inside the input.
+    input.dataset.vscodeContext = JSON.stringify({ preventDefaultContextMenuItems: false });
     let composing = false;
     input.oncompositionstart = () => { composing = true; };
     input.oncompositionend = () => { composing = false; };

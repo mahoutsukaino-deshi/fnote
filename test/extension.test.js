@@ -220,7 +220,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       showInputBox: async () => inputs.shift(),
       showQuickPick: async () => picks.shift(),
       showOpenDialog: async () => attachmentSources.shift(),
-      showWarningMessage: async () => "Delete",
+      showWarningMessage: async (message) => message.startsWith("Archive or unarchive") ? "Apply" : "Delete",
       showErrorMessage: (message) => errors.push(message),
       showTextDocument: async (doc, options) => {
         shown = { doc, options };
@@ -569,6 +569,50 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.equal(contexts.get("fnote.notesAllCollapsed"), false);
     assert.equal(contexts.get("fnote.tagsAllCollapsed"), true);
+    await fs.mkdir(path.join(temp, ".fnote/別作業"), { recursive: true });
+    await fs.writeFile(path.join(temp, ".fnote/別作業/index.md"), "# 別作業\n\n@TODO\n");
+    await run("refresh");
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "2");
+    await run("archive", child);
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
+    await run("archive", child);
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "2");
+    await fs.rm(path.join(temp, ".fnote/別作業"), { recursive: true });
+    await run("refresh");
+    await run("archive", parent);
+    assert.equal(contexts.get("fnote.noteArchived"), true);
+    assert.equal(noteRows.find((row) => row.id === "音楽").archived, true);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(archive)", color: "#808080" });
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(archive)", color: "#808080" });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: true });
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    settings.set("archiveMark", "$(box)");
+    settings.set("archiveColor", "#123456");
+    await run("refresh");
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(box)", color: "#123456" });
+    await run("archive", child);
+    assert.equal(noteRows.find((row) => row.id === "音楽/曲").archived, false);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(box)", color: "#123456" });
+    assert.notDeepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: false });
+    assert.ok(tagRows.some((row) => row.id === "TODO"));
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
+    await run("archive", child);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    settings.delete("archiveMark");
+    settings.delete("archiveColor");
+    await sidebarMessage({ type: "select", id: "音楽" });
+    await run("archive", parent);
+    assert.equal(contexts.get("fnote.noteArchived"), false);
+    assert.ok(tagRows.some((row) => row.id === "TODO"));
+    await run("archive", child);
+    assert.equal(contexts.get("fnote.noteArchived"), false);
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    await run("archive", child);
+    assert.equal(tagRows.some((row) => row.id === "TODO"), true);
     const outlineText =
       "# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾";
     await fs.writeFile(path.join(temp, ".fnote/音楽/資料.txt"), "attachment");

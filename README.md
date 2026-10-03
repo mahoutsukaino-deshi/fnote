@@ -13,6 +13,7 @@ Edit your notes in the familiar Markdown editor. Notes are saved as Markdown fil
 - **Hierarchical notes**: Organize notes as parents and children, and move or reorder them with drag and drop.
 - **Heading outline**: Open a heading from the note list to jump to its position in the note.
 - **Tags and search**: Find notes and matching lines by tag or keyword.
+- **Archive**: Archive notes from the context menu. Archived notes and their descendants use an archive icon, and their tags are omitted from the tag list.
 - **Time tracking**: Add dates and durations to review your work by day, month, or year.
 - **Colors and icons**: Give tags their own icons and colors to make them easier to recognize in lists.
 - **Attachments**: Hold Shift while dropping files into a Markdown note or onto a note in the list, or use the note menu to copy them beside `index.md`.
@@ -26,6 +27,8 @@ Set `fnote.linkMark` to customize the link icon in both views. The default is `"
 Relative links can also include a filename, such as <code>&#91;Travel plans&#93;(../Travel/index.md)</code>. Existing files open directly; directory links open the `index.md` inside them.
 
 Files beside a note's `index.md`, including files inside attachment folders, appear under that note in the list. Click an attachment to open it, or use its context menu to delete it. Attachment links use the `fnote.attachmentMark` icon (default "$(attach)") and `fnote.attachmentColor`; text or emoji marks are supported too.
+
+Use **Archive** from a note's context menu. A checkmark indicates that the note is archived. If the note has children, fnote asks whether to apply the change to the selected note and all of its descendants. Changing a child note does not change its parent. The state is stored in a hidden `.status` file inside each note folder, so it follows the note when you copy or move it. Archived notes use the `fnote.archiveMark` icon (default `$(archive)`) and `fnote.archiveColor` (default `#808080`), and tags from archived notes are omitted from **Fnote - Tags**.
 
 To attach files from the Markdown editor, drag them over the note's `index.md` and hold **Shift** before releasing them. A normal drop opens the file in VS Code instead. Keep `editor.dropIntoEditor.enabled` enabled; if a drop-action selector appears, choose **Copy attachments into fnote**.
 
@@ -245,6 +248,8 @@ On Windows, you can use an absolute path such as `"C:/Users/your-name/Documents/
 | `fnote.tagBackgroundColor` | Empty string                          | Default tag background color                     |
 | `fnote.tagStyles`          | `FIX`, `TODO`, `Incomplete time tags`, and `date` (see above) | Tag icons, colors, and priority                  |
 | `fnote.tagHierarchy`       | `{}`                                  | Parent-child relationships between tags          |
+| `fnote.archiveMark`        | `$(archive)`                          | Icon for archived notes                          |
+| `fnote.archiveColor`       | `#808080`                             | Color for archived note icons                    |
 
 ## Storage and backups
 

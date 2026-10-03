@@ -30,6 +30,9 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   get selectedAttachmentId(): string | undefined {
     return this.current.flatMap(note => note.attachments ?? []).find(attachment => attachment.id === this.selectedId)?.id;
   }
+  private async updateArchiveContext(note?: Note): Promise<void> {
+    if (!this.tagMode) await vscode.commands.executeCommand('setContext', 'fnote.noteArchived', Boolean(note?.archived));
+  }
   async collapseAll(): Promise<void> {
     await this.view?.webview.postMessage({ type: 'collapseAll' });
   }
@@ -38,6 +41,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async reveal(note: Note): Promise<void> {
     this.selectedId = note.id;
+    await this.updateArchiveContext(note);
     this.activeId = note.id;
     await this.view?.webview.postMessage({ type: 'select', id: note.id, active: true });
   }
@@ -57,6 +61,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async update(notes: Note[]): Promise<void> {
     this.current = notes;
+    await this.updateArchiveContext(this.current.find(note => note.id === this.selectedId));
     const attachments = notes.flatMap(note => note.attachments ?? []);
     this.outline = this.tagMode ? [] : notes.flatMap(note => {
       const rows: OutlineRow[] = [];
@@ -81,7 +86,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     if (!this.view) return;
     const rows = await Promise.all(notes.map(async note => {
       const item = await this.data.getTreeItem(note);
-      return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, collapsedLabel: this.collapsedLabel?.(note), appearance: this.appearance?.(note, false), collapsedAppearance: this.appearance?.(note, true) };
+      return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, archived: note.archived, collapsedLabel: this.collapsedLabel?.(note), appearance: this.appearance?.(note, false), collapsedAppearance: this.appearance?.(note, true) };
     }));
     await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows, ...attachmentRows], selected: this.selectedId, active: this.activeId });
   }
@@ -155,6 +160,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           const attachment = this.current.flatMap(note => note.attachments ?? []).find(item => item.id === message.id);
           if (attachment && message.type !== 'drop') {
             this.selectedId = attachment.id;
+            await this.updateArchiveContext();
             if (message.type === 'openAttachment') this.activeId = attachment.id;
             if (message.type === 'openAttachment') {
               await vscode.commands.executeCommand('fnote.openAttachment', attachment.id);
@@ -168,6 +174,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           const heading = this.outline.find(row => row.id === message.id);
           if (heading) {
             this.selectedId = heading.noteId;
+            await this.updateArchiveContext(this.current.find(note => note.id === heading.noteId));
             if (message.type === 'open') this.activeId = heading.noteId;
             if (message.type === 'open') await vscode.commands.executeCommand('fnote.open', heading.noteId, heading.offset, true);
             return;
@@ -178,12 +185,13 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
         const messageAttachment = this.current.flatMap(note => note.attachments ?? []).find(item => item.id === message.id);
         if (!messageNote && !messageAttachment) return;
         this.selectedId = message.id;
+        await this.updateArchiveContext(messageNote);
         if (message.type === 'open') {
           this.activeId = message.id;
           if (this.tagMode) await vscode.commands.executeCommand('fnote.filter', message.id);
           else await vscode.commands.executeCommand('fnote.open', message.id, undefined, true);
         }
-        if (!this.tagMode && message.type === 'command' && 'command' in message && typeof message.command === 'string' && ['addChild', 'addAttachment', 'rename', 'move', 'up', 'down', 'delete'].includes(message.command)) {
+        if (!this.tagMode && message.type === 'command' && 'command' in message && typeof message.command === 'string' && ['addChild', 'addAttachment', 'rename', 'archive', 'move', 'up', 'down', 'delete'].includes(message.command)) {
           await vscode.commands.executeCommand(`fnote.${message.command}`, this.selection[0]);
         }
         if (message.type === 'drop' && 'position' in message && ['before', 'after', 'inside'].includes(String(message.position))) {

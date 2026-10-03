@@ -109,6 +109,7 @@
         row.onclick = () => { setActive(note.id); select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
         row.dataset.vscodeContext = JSON.stringify({
           webviewSection: note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
+          'fnote.noteArchived': Boolean(note.archived),
           preventDefaultContextMenuItems: true,
         });
         row.oncontextmenu = () => {

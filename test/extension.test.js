@@ -220,7 +220,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       showInputBox: async () => inputs.shift(),
       showQuickPick: async () => picks.shift(),
       showOpenDialog: async () => attachmentSources.shift(),
-      showWarningMessage: async () => "Delete",
+      showWarningMessage: async (message) => message.startsWith("Archive or unarchive") ? "Apply" : "Delete",
       showErrorMessage: (message) => errors.push(message),
       showTextDocument: async (doc, options) => {
         shown = { doc, options };
@@ -549,6 +549,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         set html(value) { sidebarHtml = value; },
         postMessage: async (message) => {
           if (message.type === "notes") noteRows = message.rows;
+          if (message.type === "edit") {
+            const name = inputs.shift();
+            if (name !== undefined) await sidebarMessage({ ...message, name });
+          }
         },
         onDidReceiveMessage: (handler) => {
           sidebarMessage = handler;
@@ -556,8 +560,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         },
       },
     });
-    assert.match(sidebarHtml, /id="attachment-hint">Attach files: hold Shift and drop onto a note\./);
-    assert.match(sidebarHtml, /aria-describedby="attachment-hint"/);
+    assert.doesNotMatch(sidebarHtml, /attachment-hint|Attach files: hold Shift and drop onto a note\./);
+    await sidebarMessage({ type: "ready" });
     await sidebarMessage({
       type: "expansionState",
       allCollapsed: false,
@@ -565,6 +569,50 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.equal(contexts.get("fnote.notesAllCollapsed"), false);
     assert.equal(contexts.get("fnote.tagsAllCollapsed"), true);
+    await fs.mkdir(path.join(temp, ".fnote/別作業"), { recursive: true });
+    await fs.writeFile(path.join(temp, ".fnote/別作業/index.md"), "# 別作業\n\n@TODO\n");
+    await run("refresh");
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "2");
+    await run("archive", child);
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
+    await run("archive", child);
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "2");
+    await fs.rm(path.join(temp, ".fnote/別作業"), { recursive: true });
+    await run("refresh");
+    await run("archive", parent);
+    assert.equal(contexts.get("fnote.noteArchived"), true);
+    assert.equal(noteRows.find((row) => row.id === "音楽").archived, true);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(archive)", color: "#808080" });
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(archive)", color: "#808080" });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: true });
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    settings.set("archiveMark", "$(box)");
+    settings.set("archiveColor", "#123456");
+    await run("refresh");
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(box)", color: "#123456" });
+    await run("archive", child);
+    assert.equal(noteRows.find((row) => row.id === "音楽/曲").archived, false);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(box)", color: "#123456" });
+    assert.notDeepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: false });
+    assert.ok(tagRows.some((row) => row.id === "TODO"));
+    assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
+    await run("archive", child);
+    assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    settings.delete("archiveMark");
+    settings.delete("archiveColor");
+    await sidebarMessage({ type: "select", id: "音楽" });
+    await run("archive", parent);
+    assert.equal(contexts.get("fnote.noteArchived"), false);
+    assert.ok(tagRows.some((row) => row.id === "TODO"));
+    await run("archive", child);
+    assert.equal(contexts.get("fnote.noteArchived"), false);
+    assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    await run("archive", child);
+    assert.equal(tagRows.some((row) => row.id === "TODO"), true);
     const outlineText =
       "# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾";
     await fs.writeFile(path.join(temp, ".fnote/音楽/資料.txt"), "attachment");
@@ -575,9 +623,19 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const attachmentRows = noteRows.filter((row) => row.attachment);
     assert.deepEqual(attachmentRows.map((row) => row.id).sort(), ["音楽/assets", "音楽/assets/preview.png", "音楽/資料.txt"]);
     assert.deepEqual(attachmentRows.find((row) => row.id === "音楽/資料.txt").appearance, { mark: "$(attach)", color: undefined });
-    await sidebarMessage({ type: "openAttachment", id: "音楽/資料.txt" });
+    await fs.writeFile(path.join(temp, ".fnote/音楽/move-test.txt"), "move me");
+    await run("refresh");
+    await fs.writeFile(path.join(temp, ".fnote/音楽/index.md"), `${outlineText}\n[](move-test.txt)`);
+    await sidebarMessage({ type: "drop", id: "音楽/move-test.txt", target: "音楽/assets", position: "inside" });
+    assert.equal(await fs.readFile(path.join(temp, ".fnote/音楽/assets/move-test.txt"), "utf8"), "move me");
+    assert.equal(await fs.stat(path.join(temp, ".fnote/音楽/move-test.txt")).catch(() => undefined), undefined);
+    assert.match(await fs.readFile(path.join(temp, ".fnote/音楽/index.md"), "utf8"), /\[\]\(assets\/move-test\.txt\)/);
+    await fs.writeFile(path.join(temp, ".fnote/音楽/index.md"), outlineText);
+    await sidebarMessage({ type: "openAttachment", id: "音楽/move-test.txt" });
+    assert.equal(openedAttachments.at(-1), undefined);
+    await sidebarMessage({ type: "openAttachment", id: "音楽/assets/move-test.txt" });
     assert.equal(openedAttachments.at(-1).name, "vscode.open");
-    assert.equal(openedAttachments.at(-1).uri.fsPath, path.join(temp, ".fnote/音楽/資料.txt"));
+    assert.equal(openedAttachments.at(-1).uri.fsPath, path.join(temp, ".fnote/音楽/assets/move-test.txt"));
     await sidebarMessage({ type: "command", id: "音楽/assets/preview.png", command: "deleteAttachment" });
     assert.equal(await fs.stat(path.join(temp, ".fnote/音楽/assets/preview.png")).catch(() => undefined), undefined);
     await fs.writeFile(path.join(temp, "external.txt"), "external");
@@ -1123,7 +1181,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.doesNotMatch(html, /class="work-time"/);
     await fs.writeFile(
       path.join(temp, ".fnote/音楽/曲/index.md"),
-      "@2026/09/13 @10m @TODO",
+      "@2026/09/13 @10m @TODO\n[音楽](../)\n[資料](../資料.txt)",
+    );
+    await fs.writeFile(
+      path.join(temp, ".fnote/音楽/index.md"),
+      "# 音楽\n[曲](曲/)\n",
     );
     await run("refresh");
     await run("filter", "2026/09/13");
@@ -1149,6 +1211,18 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     picks.push({ id: "" });
     await run("move", child);
     assert.equal(provider.getChildren().length, 2);
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/音楽/index.md"), "utf8"),
+      /\[曲\]\(\.\.\/曲\/\)/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/曲/index.md"), "utf8"),
+      /\[音楽\]\(\.\.\/音楽\/\)/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/曲/index.md"), "utf8"),
+      /\[資料\]\(\.\.\/音楽\/資料\.txt\)/,
+    );
     child = provider.getChildren().find((n) => n.id === "曲");
     inputs.push("音楽");
     await run("rename", child);
@@ -1159,6 +1233,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(
       await fs.readFile(path.join(temp, ".fnote/新しい曲/index.md"), "utf8"),
       /@TODO/,
+    );
+    assert.match(
+      await fs.readFile(path.join(temp, ".fnote/新しい曲/index.md"), "utf8"),
+      /\[音楽\]\(\.\.\/音楽\/\)/,
     );
     await run("delete", renamed);
     assert.equal(provider.getChildren().length, 1);

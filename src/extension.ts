@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { NotesView } from './notesView';
-import type { DropPosition } from './notesView';
+import type { DropPosition, NoteEdit } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
@@ -139,6 +139,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   let order = context.globalState.get<string[]>(`order:${root.toString()}`, []);
+  const archiveStateKey = `archived:${root.toString()}`;
+  const unarchiveStateKey = `unarchived:${root.toString()}`;
+  const legacyArchivedRoots = new Set(context.globalState.get<string[]>(archiveStateKey, []).filter(id => typeof id === 'string'));
+  const legacyUnarchivedNotes = new Set(context.globalState.get<string[]>(unarchiveStateKey, []).filter(id => typeof id === 'string'));
+  let legacyStatePending = legacyArchivedRoots.size > 0 || legacyUnarchivedNotes.size > 0;
   let tagOrder = context.globalState.get<string[]>(`tagOrder:${root.toString()}`, []);
   const events = new vscode.EventEmitter<void>();
   const tagEvents = new vscode.EventEmitter<void>();
@@ -146,7 +151,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     try { return await fn(...args); }
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
   };
-  const appearance = (n: Note) => noteAppearance(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '$(note)'), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
+  const statusFile = (id: string) => vscode.Uri.joinPath(uri(id), '.status');
+  const writeArchiveStatus = async (id: string, archived: boolean): Promise<void> => {
+    await vscode.workspace.fs.writeFile(statusFile(id), Buffer.from(`${JSON.stringify({ archived })}\n`));
+  };
+  const readArchiveStatus = async (id: string, entries: readonly [string, vscode.FileType][]): Promise<boolean | undefined> => {
+    const hasStatus = entries.some(([name]) => name === '.status');
+    if (hasStatus) {
+      try {
+        const value = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(statusFile(id))).toString('utf8'));
+        return typeof value?.archived === 'boolean' ? value.archived : undefined;
+      } catch { return undefined; }
+    }
+    const migrated = legacyUnarchivedNotes.has(id) ? false : legacyArchivedRoots.has(id) ? true : undefined;
+    if (migrated !== undefined) await writeArchiveStatus(id, migrated);
+    return migrated;
+  };
+  const appearance = (n: Note) => n.archived
+    ? { mark: config().get<string>('archiveMark', '$(archive)'), color: config().get<string>('archiveColor', '#808080') || undefined }
+    : noteAppearance(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '$(note)'), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
   const marks = (n: Note) => appearance(n).mark;
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
@@ -155,14 +178,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getParent: n => notes.find(p => p.id === n.parent),
     getTreeItem: n => {
       const item = new vscode.TreeItem(`${marks(n)}${marks(n) ? ' ' : ''}${n.name}`, children(n).length ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
-      item.id = n.id; item.contextValue = 'note'; item.tooltip = n.id;
+      item.id = n.id; item.contextValue = n.archived ? 'archivedNote' : 'note'; item.tooltip = n.id;
       item.command = { command: 'fnote.open', title: 'Open', arguments: [n.id] };
       return item;
     }
   };
   let dropQueue = Promise.resolve();
   const tree = new NotesView(provider, context.extensionUri, (id, target, position) => {
-    const operation = dropQueue.catch(() => {}).then(() => dropNote(id, target, position));
+    const operation = dropQueue.catch(() => {}).then(() => dropItem(id, target, position));
     dropQueue = operation;
     return operation;
   }, false, note => {
@@ -171,7 +194,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), () => {
     const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
-  });
+  }, applyNoteEdit);
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
   const hierarchy = () => config().get<TagHierarchy>('tagHierarchy', {});
   const sortedTags = (nodes: Iterable<TagNode>) => [...nodes].sort((a, b) => {
@@ -182,12 +205,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let tagDropQueue = Promise.resolve();
   const tagProvider: vscode.TreeDataProvider<TagNode> = {
     onDidChangeTreeData: tagEvents.event,
-    getChildren: n => sortedTags((n?.children || tagTree(notes, hierarchy())).values()),
+    getChildren: n => sortedTags((n?.children || tagTree(notes.filter(note => !note.archived), hierarchy())).values()),
     getTreeItem: n => {
       const mark = tagAppearance(n.tag, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()).mark;
       const item = new vscode.TreeItem(`${mark ? `${mark} ` : ''}${n.label}`, n.children.size ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
       item.id = n.tag; item.tooltip = n.tag === INCOMPLETE_TIME_TAG ? n.tag : `@${n.tag}`;
-      item.description = String(notes.filter(note => matchesTag(note, n.tag, hierarchy())).length);
+      item.description = String(notes.filter(note => !note.archived && matchesTag(note, n.tag, hierarchy())).length);
       item.command = { command: 'fnote.filter', title: 'Find by Tag', arguments: [n.tag] };
       return item;
     }
@@ -196,7 +219,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     getChildren: () => [],
     getTreeItem: note => {
       const item = new vscode.TreeItem(note.name);
-      item.description = String(notes.filter(n => matchesTag(n, note.id, hierarchy())).length);
+      item.description = String(notes.filter(n => !n.archived && matchesTag(n, note.id, hierarchy())).length);
       return item;
     }
   }, context.extensionUri, async (id, target, position) => {
@@ -227,7 +250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await visit(node.children.values(), node.tag);
       }
     }
-    await visit(tagTree(notes, hierarchy()).values(), '');
+    await visit(tagTree(notes.filter(note => !note.archived), hierarchy()).values(), '');
     return rows;
   }
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.tags', tags));
@@ -246,11 +269,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         else output.push({ id: child, parent: id, name, directory: false });
       }
     }
-    async function walkNote(id: string, parent: string, entries: readonly [string, vscode.FileType][]): Promise<void> {
+    async function walkNote(id: string, parent: string, entries: readonly [string, vscode.FileType][], ancestorArchived = false): Promise<void> {
+      const explicitArchive = await readArchiveStatus(id, entries);
+      const inheritedArchive = ancestorArchived || explicitArchive === true;
+      const archived = inheritedArchive && explicitArchive !== false;
       const attachments: Attachment[] = [];
       const childNotes: { id: string; entries: readonly [string, vscode.FileType][] }[] = [];
       for (const [name, type] of entries) {
-        if (name === 'index.md' && type === vscode.FileType.File) continue;
+        if (name === '.status' || (name === 'index.md' && type === vscode.FileType.File)) continue;
         const child = `${id}/${name}`;
         if (type === vscode.FileType.Directory) {
           const childEntries = await readEntries(child);
@@ -260,8 +286,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file(id).toString());
       const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8');
-      found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text), attachments });
-      for (const child of childNotes) await walkNote(child.id, id, child.entries);
+      found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text), archived, attachments });
+      for (const child of childNotes) await walkNote(child.id, id, child.entries, inheritedArchive);
     }
     const rootEntries = await readEntries('');
     for (const [name, type] of rootEntries) if (type === vscode.FileType.Directory && !name.startsWith('.')) {
@@ -270,6 +296,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (hasIndex(entries)) await walkNote(id, '', entries);
     }
     if (disposed) return;
+    if (legacyStatePending) {
+      await context.globalState.update(archiveStateKey, []);
+      await context.globalState.update(unarchiveStateKey, []);
+      legacyStatePending = false;
+    }
     notes = found.sort((a, b) => {
       const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
       return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi) || a.id.localeCompare(b.id, 'ja', { numeric: true });
@@ -348,15 +379,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const note = notes.find(n => n.id === id);
     if (note) await tree.reveal(note);
   }
-  const selected = (n?: Note) => n || tree.selection[0];
+  const selected = (n?: Note) => notes.find(note => note.id === n?.id) || tree.selection[0];
   async function add(parent = '') {
+    if (await tree.startCreate(parent)) return;
     const name = await vscode.window.showInputBox({ prompt: 'Note name', validateInput: validateName });
-    if (!name) return;
+    if (name) await applyNoteEdit({ mode: 'create', parent, name });
+  }
+  async function createNote(parent: string, name: string): Promise<void> {
     const id = parent ? `${parent}/${name}` : name;
     await ensureAbsent(id);
     await vscode.workspace.fs.createDirectory(uri(id));
     await vscode.workspace.fs.writeFile(file(id), Buffer.from(`# ${name}\n\n`));
     await refresh(); await open(id);
+  }
+  async function applyNoteEdit(edit: NoteEdit): Promise<void> {
+    const validation = validateName(edit.name);
+    if (validation) throw new Error(validation);
+    if (edit.mode === 'create') {
+      const parent = edit.parent ?? '';
+      if (parent && !notes.some(note => note.id === parent)) throw new Error('The parent note no longer exists.');
+      await createNote(parent, edit.name);
+      return;
+    }
+    const note = notes.find(item => item.id === edit.id);
+    if (!note) {
+      const item = attachment(edit.id ?? '');
+      if (!item) return;
+      await relocate(item.id, `${item.parent}/${edit.name}`);
+      return;
+    }
+    const destination = note.parent ? `${note.parent}/${edit.name}` : edit.name;
+    await relocate(note.id, destination, edit.name);
+    const renamed = notes.find(item => item.id === destination);
+    if (renamed) await tree.reveal(renamed);
   }
   async function ensureAbsent(id: string) {
     try { await vscode.workspace.fs.stat(uri(id)); } catch (error) { if (isMissing(error)) return; throw error; }
@@ -411,7 +466,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (item.directory) await vscode.commands.executeCommand('revealFileInOS', target);
     else await vscode.commands.executeCommand('vscode.open', target);
   }
-  async function deleteAttachment(id: string): Promise<void> {
+  async function deleteAttachment(id?: string): Promise<void> {
+    if (!id) return;
     const item = attachment(id);
     if (!item) return;
     if (await vscode.window.showWarningMessage(`Delete attachment "${item.name}"?`, { modal: true }, 'Delete') !== 'Delete') return;
@@ -419,10 +475,50 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not delete the attachment.');
     await refresh();
   }
+  async function updateNoteLinks(edit: vscode.WorkspaceEdit, id: string, destination: string): Promise<void> {
+    const movedPaths = [
+      ...notes.filter(note => within(note.id, id)).map(note => note.id),
+      ...notes.flatMap(note => note.attachments ?? []).filter(item => within(item.id, id)).map(item => item.id),
+    ];
+    const movedIds = new Map(movedPaths.map(source => [source, destination + source.slice(id.length)]));
+    const attachmentIds = new Set(notes.flatMap(note => (note.attachments ?? []).map(attachment => attachment.id)));
+    for (const source of notes) {
+      const document = await vscode.workspace.openTextDocument(file(source.id));
+      const text = document.getText();
+      const newSource = movedIds.get(source.id) ?? source.id;
+      const sourceMoved = movedIds.has(source.id);
+      for (const link of parseDisplayLinks(text).reverse()) {
+        const sourceText = text.slice(link.start, link.end);
+        if (!sourceText.startsWith('[') || link.target.startsWith('/') || /[?#]/.test(link.target) || /^[a-z][a-z\d+.-]*:/i.test(link.target)) continue;
+        let decoded: string;
+        try { decoded = decodeURIComponent(link.target); } catch { continue; }
+        const resolved = path.posix.normalize(path.posix.join(source.id, decoded));
+        const explicitIndex = decoded === 'index.md' || decoded.endsWith('/index.md');
+        const targetId = resolved.endsWith('/index.md')
+          ? resolved.slice(0, -'/index.md'.length)
+          : resolved.replace(/\/+$/, '');
+        const oldTarget = notes.find(note => note.id === targetId);
+        if (!oldTarget && !attachmentIds.has(targetId)) continue;
+        const oldTargetPath = oldTarget
+          ? explicitIndex ? `${oldTarget.id}/index.md` : oldTarget.id
+          : targetId;
+        const targetMoved = within(oldTargetPath, id);
+        if (sourceMoved === targetMoved) continue;
+        const newTarget = targetMoved ? destination + oldTargetPath.slice(id.length) : oldTargetPath;
+        const trailingSlash = decoded.endsWith('/');
+        let replacement = path.posix.relative(newSource, newTarget) || (explicitIndex ? 'index.md' : '.');
+        if (trailingSlash && !replacement.endsWith('/')) replacement += '/';
+        if (link.target.startsWith('./') && !replacement.startsWith('.')) replacement = `./${replacement}`;
+        if (/%[\da-f]{2}/i.test(link.target)) replacement = replacement.split('/').map(part => encodeURIComponent(part)).join('/');
+        if (replacement !== link.target) edit.replace(document.uri, new vscode.Range(document.positionAt(link.targetStart), document.positionAt(link.targetEnd)), replacement);
+      }
+    }
+  }
   async function relocate(id: string, destination: string, title?: string) {
     if (id === destination && title === undefined) return;
     if (id !== destination) await ensureAbsent(destination);
     const edit = new vscode.WorkspaceEdit();
+    if (id !== destination) await updateNoteLinks(edit, id, destination);
     if (title !== undefined) {
       const doc = await vscode.workspace.openTextDocument(file(id));
       const text = doc.getText();
@@ -454,17 +550,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const moved = notes.find(note => note.id === plan.destination);
     if (moved) await tree.reveal(moved);
   }
+  async function dropAttachment(id: string, target: string | undefined, position: DropPosition): Promise<void> {
+    const source = attachment(id);
+    if (!source) throw new Error('Source attachment not found.');
+    const targetNote = target ? notes.find(note => note.id === target) : undefined;
+    const targetAttachment = target ? attachment(target) : undefined;
+    if (target !== undefined && !targetNote && !targetAttachment) throw new Error('Destination not found.');
+    if (target && within(target, id)) throw new Error('Cannot move an attachment into itself or its descendants.');
+    if (position === 'inside' && targetAttachment && !targetAttachment.directory) throw new Error('A file cannot contain an attachment.');
+    const parent = target
+      ? position === 'inside' ? target : targetNote?.parent ?? targetAttachment?.parent
+      : undefined;
+    if (!parent) throw new Error('Attachments must be moved into a note or attachment folder.');
+    const destination = `${parent}/${source.name}`;
+    if (destination === id) return;
+    if (notes.some(note => note.id === destination) || attachment(destination)) throw new Error('An item with the same name already exists.');
+    await relocate(id, destination);
+    await refresh();
+  }
+  async function dropItem(id: string, target: string | undefined, position: DropPosition): Promise<void> {
+    if (attachment(id)) await dropAttachment(id, target, position);
+    else await dropNote(id, target, position);
+  }
   function renderResults() {
     if (!panel || (!activeTag && !activeQuery)) return;
     const tag = activeTag ?? '';
     const hits = activeQuery ? searchNotes(notes, activeQuery) : [];
     const hitMap = new Map(hits.map(hit => [hit.note.id, hit]));
+    const tagNotes = notes.filter(note => !note.archived);
     const subset = activeQuery
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
-      : filterTree(notes, tag, hierarchy());
+      : filterTree(tagNotes, tag, hierarchy());
     const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
     const title = activeQuery ? `Search: ${activeQuery}` : tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`;
-    const count = activeQuery ? hits.length : notes.filter(isMatch).length;
+    const count = activeQuery ? hits.length : tagNotes.filter(isMatch).length;
     const tagClasses = new Map<string, string>();
     const styles = config().get<TagStyles>('tagStyles', {});
     // Only color-value characters are allowed inside the nonce-protected stylesheet.
@@ -617,7 +736,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
-  command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return n ? add(n.id) : add(); });
+  command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return add(n?.id ?? ''); });
   command('addAttachment', (n?: Note) => addAttachment(selected(n)));
   command('dropAttachments', async (noteId: string, values: string[]) => {
     if (typeof noteId !== 'string' || !Array.isArray(values)) return;
@@ -625,22 +744,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   command('dropAttachmentFiles', receiveAttachmentFiles);
   command('openAttachment', openAttachment);
-  command('deleteAttachment', deleteAttachment);
+  command('deleteAttachment', (id?: string) => deleteAttachment(typeof id === 'string' ? id : tree.selectedAttachmentId));
   command('rename', async (n?: Note) => {
-    n = selected(n); if (!n) return;
-    const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });
-    if (name) {
-      const destination = n.parent ? `${n.parent}/${name}` : name;
-      await relocate(n.id, destination, name);
-      const renamed = notes.find(note => note.id === destination);
-      if (renamed) await tree.reveal(renamed);
+    if (!n) {
+      const attachmentId = tree.selectedAttachmentId;
+      if (attachmentId && await tree.startRename(attachmentId)) return;
     }
+    n = selected(n); if (!n) return;
+    if (await tree.startRename(n.id)) return;
+    const name = await vscode.window.showInputBox({ value: n.name, prompt: 'New note name', validateInput: validateName });
+    if (name) await applyNoteEdit({ mode: 'rename', id: n.id, name });
   });
   command('move', async (n?: Note) => {
     n = selected(n); if (!n) return;
     const target = await vscode.window.showQuickPick([{ label: 'Top Level', id: '' }, ...notes.filter(p => !within(p.id, n.id)).map(p => ({ label: p.id, id: p.id }))], { placeHolder: 'Select the destination parent note' });
     if (target) await move(n.id, target.id);
   });
+  const toggleArchive = async (n: Note | undefined): Promise<void> => {
+    n = selected(n); if (!n) return;
+    const descendants = notes.filter(note => note.id !== n!.id && within(note.id, n!.id));
+    if (descendants.length && await vscode.window.showWarningMessage(
+      `Archive or unarchive "${n.name}" and its child notes (${descendants.length + 1} notes in total)?`,
+      { modal: true },
+      'Apply',
+    ) !== 'Apply') return;
+    const archived = !n.archived;
+    await Promise.all([n, ...descendants].map(note => writeArchiveStatus(note.id, archived)));
+    await refresh();
+  };
+  command('archive', toggleArchive);
+  command('archiveChecked', toggleArchive);
   for (const [name, delta] of [['up', -1], ['down', 1]] as const) command(name, async (n?: Note) => {
     n = selected(n); if (!n) return;
     const siblings = notes.filter(p => p.parent === n.parent);

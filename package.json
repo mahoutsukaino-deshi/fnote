@@ -60,33 +60,62 @@
       },
       {
         "command": "fnote.addChild",
-        "title": "fnote: Add Child Note",
+        "title": "Add Child Note",
+        "category": "fnote",
         "icon": "$(new-file)"
       },
       {
         "command": "fnote.addAttachment",
-        "title": "fnote: Add Attachment",
+        "title": "Add Attachment",
+        "category": "fnote",
         "icon": "$(attach)"
       },
       {
         "command": "fnote.rename",
-        "title": "fnote: Rename"
+        "title": "Rename",
+        "category": "fnote",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fnote.archive",
+        "title": "Archive",
+        "category": "fnote",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "fnote.archiveChecked",
+        "title": "✓ Archive",
+        "category": "fnote",
+        "icon": "$(archive)"
       },
       {
         "command": "fnote.move",
-        "title": "fnote: Move"
+        "title": "Move",
+        "category": "fnote",
+        "icon": "$(folder)"
       },
       {
         "command": "fnote.up",
-        "title": "fnote: Move Up"
+        "title": "Move Up",
+        "category": "fnote",
+        "icon": "$(arrow-up)"
       },
       {
         "command": "fnote.down",
-        "title": "fnote: Move Down"
+        "title": "Move Down",
+        "category": "fnote",
+        "icon": "$(arrow-down)"
       },
       {
         "command": "fnote.delete",
-        "title": "fnote: Delete",
+        "title": "Delete",
+        "category": "fnote",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "title": "Delete Attachment",
+        "category": "fnote",
         "icon": "$(trash)"
       },
       {
@@ -127,6 +156,53 @@
         "command": "fnote.closeAllNotes",
         "title": "fnote: Close All Open Notes",
         "icon": "$(close-all)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "fnote.addChild",
+        "key": "cmd+n",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.addChild",
+        "key": "ctrl+n",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.add",
+        "key": "cmd+n",
+        "when": "isMac && webviewId == 'fnote.notes' && (webviewSection == 'attachment' || !webviewSection)"
+      },
+      {
+        "command": "fnote.add",
+        "key": "ctrl+n",
+        "when": "!isMac && webviewId == 'fnote.notes' && (webviewSection == 'attachment' || !webviewSection)"
+      },
+      {
+        "command": "fnote.rename",
+        "key": "f2",
+        "when": "webviewId == 'fnote.notes' && (webviewSection == 'note' || webviewSection == 'attachment')"
+      },
+      {
+        "command": "fnote.delete",
+        "key": "cmd+backspace",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.delete",
+        "key": "delete",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'note'"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "key": "cmd+backspace",
+        "when": "isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
+      },
+      {
+        "command": "fnote.deleteAttachment",
+        "key": "delete",
+        "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
       }
     ],
     "menus": {
@@ -171,6 +247,64 @@
           "when": "view == fnote.notes",
           "group": "navigation@4"
         }
+      ],
+      "webview/context": [
+        {
+          "command": "fnote.addChild",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "fnote.addAttachment",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "1_modification@2"
+        },
+        {
+          "command": "fnote.rename",
+          "when": "webviewId == 'fnote.notes' && (webviewSection == 'note' || webviewSection == 'attachment')",
+          "group": "2_rename@1"
+        },
+        {
+          "command": "fnote.archive",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note' && !fnote.noteArchived",
+          "group": "2_rename@2"
+        },
+        {
+          "command": "fnote.archiveChecked",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note' && fnote.noteArchived",
+          "group": "2_rename@2"
+        },
+        {
+          "command": "fnote.move",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "2_move@1"
+        },
+        {
+          "command": "fnote.up",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "3_reorder@1"
+        },
+        {
+          "command": "fnote.down",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "3_reorder@2"
+        },
+        {
+          "command": "fnote.delete",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "9_delete@1"
+        },
+        {
+          "command": "fnote.deleteAttachment",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'attachment'",
+          "group": "9_delete@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "fnote.archiveChecked",
+          "when": "false"
+        }
       ]
     },
     "configuration": {
@@ -206,6 +340,17 @@
           "type": "string",
           "default": "",
           "description": "Attachment icon color in the note editor and note list. An empty string uses the current text color.",
+          "format": "color"
+        },
+        "fnote.archiveMark": {
+          "type": "string",
+          "default": "$(archive)",
+          "description": "Archive icon for archived notes. Use a bundled Codicon such as $(archive), text, or an emoji. An empty string hides the icon."
+        },
+        "fnote.archiveColor": {
+          "type": "string",
+          "default": "#808080",
+          "description": "Archive icon color for archived notes.",
           "format": "color"
         },
         "fnote.tagColor": {
@@ -342,7 +487,7 @@
   "devDependencies": {
     "@types/node": "20.17.19",
     "@types/vscode": "1.85.0",
-    "@vscode/vsce": "3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "typescript": "5.7.3"
   },
   "repository": {

@@ -108,6 +108,8 @@ Open VS Code Settings and search for **`@ext:maoren.fnote`**. For the JSON examp
 
 Use `fnote.tagStyles` for individual tags. Icons accept text, emoji, or VS Code icon names such as `$(book)`.
 
+The available VS Code icons are listed in the [VS Code Codicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) reference.
+
 ```json
 {
   "fnote.tagStyles": [

@@ -108,6 +108,8 @@ VS Codeの設定画面で **`@ext:maoren.fnote`** を検索すると、fnoteの�
 
 タグごとの設定には `fnote.tagStyles` を使います。アイコンには文字・絵文字・`$(book)` などのVS Codeアイコン名を指定できます。
 
+利用できるVS Codeアイコンは、[VS Code Codicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) の一覧で確認できます。
+
 ```json
 {
   "fnote.tagStyles": [

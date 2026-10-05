@@ -2,7 +2,7 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## Unreleased
+## v0.1.8
 
 - Add inline name editing when creating or renaming notes and attachments.
 - Update supported relative Markdown and wiki links when notes, attachments, and directories are moved or renamed.

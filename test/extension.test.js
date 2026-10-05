@@ -584,8 +584,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(noteRows.find((row) => row.id === "音楽").archived, true);
     assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(archive)", color: "#808080" });
     assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(archive)", color: "#808080" });
-    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
-    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: true });
+    assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")).archived, true);
+    assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")).archived, true);
     assert.equal(tagRows.some((row) => row.id === "TODO"), false);
     settings.set("archiveMark", "$(box)");
     settings.set("archiveColor", "#123456");
@@ -595,8 +595,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(noteRows.find((row) => row.id === "音楽/曲").archived, false);
     assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(box)", color: "#123456" });
     assert.notDeepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
-    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")), { archived: true });
-    assert.deepEqual(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")), { archived: false });
+    assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")).archived, true);
+    assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")).archived, false);
     assert.ok(tagRows.some((row) => row.id === "TODO"));
     assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
     await run("archive", child);
@@ -863,6 +863,14 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(errors.pop(), /descendants/);
     await sidebarMessage({ type: "drop", id: "音楽/B", position: "inside" });
     assert.equal(provider.getChildren().at(-1).id, "B");
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(temp, ".fnote/.status"), "utf8")).order,
+      ["音楽", "B"],
+    );
+    assert.deepEqual(
+      JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")).order,
+      ["曲", "A"],
+    );
     await run(
       "delete",
       provider.getChildren().find((n) => n.id === "B"),

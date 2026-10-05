@@ -2,12 +2,13 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## Unreleased
+## v0.1.8
 
 - Add inline name editing when creating or renaming notes and attachments.
 - Update supported relative Markdown and wiki links when notes, attachments, and directories are moved or renamed.
 - Add archive and unarchive support for notes, including optional descendant updates; archived notes are excluded from tag results, counts, and work-time totals.
 - Improve note list navigation, keyboard shortcuts, context menus, and drag-and-drop support for attachments.
+- Store the ordering of direct child notes in `.status` files so copied or synchronized storage preserves note ordering.
 
 ## v0.1.7
 

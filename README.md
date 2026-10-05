@@ -163,4 +163,4 @@ To use the current workspace, set:
 
 You can also use `~/Documents/fnote` or an absolute path such as `C:/Users/your-name/Documents/fnote`. `${workspace}` and `${workspaceFolder}` refer to the first workspace folder. After changing the setting, run **Developer: Reload Window**.
 
-Existing notes are not moved automatically: save them and copy their folders to the new location before switching. To back up notes, attachments, and archive states, copy the storage folder, including `.status` files. List ordering is stored separately by VS Code; automatic device synchronization is not provided.
+Existing notes are not moved automatically: save them and copy their folders to the new location before switching. To back up notes, attachments, archive states, and note ordering, copy the storage folder, including `.status` files. The root `.status` stores top-level note ordering, while each note's `.status` stores the ordering of its direct child notes.

@@ -9,6 +9,11 @@ import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, 
 import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
+interface NoteStatus {
+  archived?: boolean;
+  order?: string[];
+}
+
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
 }
@@ -138,12 +143,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let decorations: vscode.TextEditorDecorationType[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
-  let order = context.globalState.get<string[]>(`order:${root.toString()}`, []);
-  const archiveStateKey = `archived:${root.toString()}`;
-  const unarchiveStateKey = `unarchived:${root.toString()}`;
-  const legacyArchivedRoots = new Set(context.globalState.get<string[]>(archiveStateKey, []).filter(id => typeof id === 'string'));
-  const legacyUnarchivedNotes = new Set(context.globalState.get<string[]>(unarchiveStateKey, []).filter(id => typeof id === 'string'));
-  let legacyStatePending = legacyArchivedRoots.size > 0 || legacyUnarchivedNotes.size > 0;
+  const legacyOrderKey = `order:${root.toString()}`;
+  let legacyOrder = context.globalState.get<string[]>(legacyOrderKey, []).filter(id => typeof id === 'string');
+  let order: string[] = [];
   let tagOrder = context.globalState.get<string[]>(`tagOrder:${root.toString()}`, []);
   const events = new vscode.EventEmitter<void>();
   const tagEvents = new vscode.EventEmitter<void>();
@@ -152,20 +154,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
   };
   const statusFile = (id: string) => vscode.Uri.joinPath(uri(id), '.status');
-  const writeArchiveStatus = async (id: string, archived: boolean): Promise<void> => {
-    await vscode.workspace.fs.writeFile(statusFile(id), Buffer.from(`${JSON.stringify({ archived })}\n`));
-  };
-  const readArchiveStatus = async (id: string, entries: readonly [string, vscode.FileType][]): Promise<boolean | undefined> => {
-    const hasStatus = entries.some(([name]) => name === '.status');
-    if (hasStatus) {
-      try {
-        const value = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(statusFile(id))).toString('utf8'));
-        return typeof value?.archived === 'boolean' ? value.archived : undefined;
-      } catch { return undefined; }
+  const readStatus = async (id: string): Promise<NoteStatus> => {
+    try {
+      const value = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(statusFile(id))).toString('utf8')) as Record<string, unknown>;
+      return {
+        ...(typeof value.archived === 'boolean' ? { archived: value.archived } : {}),
+        ...(Array.isArray(value.order) ? { order: value.order.filter((item): item is string => typeof item === 'string') } : {}),
+      };
+    } catch {
+      return {};
     }
-    const migrated = legacyUnarchivedNotes.has(id) ? false : legacyArchivedRoots.has(id) ? true : undefined;
-    if (migrated !== undefined) await writeArchiveStatus(id, migrated);
-    return migrated;
+  };
+  const writeStatus = async (id: string, patch: NoteStatus): Promise<void> => {
+    const current = await readStatus(id);
+    await vscode.workspace.fs.writeFile(statusFile(id), Buffer.from(`${JSON.stringify({ ...current, ...patch })}\n`));
+  };
+  const writeArchiveStatus = async (id: string, archived: boolean): Promise<void> => {
+    await writeStatus(id, { archived });
+  };
+  const readArchiveStatus = async (id: string): Promise<boolean | undefined> => {
+    return (await readStatus(id)).archived;
+  };
+  const writeNoteOrder = async (ids: readonly string[]): Promise<void> => {
+    const grouped = new Map<string, string[]>();
+    for (const id of ids) {
+      const parent = path.posix.dirname(id) === '.' ? '' : path.posix.dirname(id);
+      const names = grouped.get(parent) ?? [];
+      names.push(path.posix.basename(id));
+      grouped.set(parent, names);
+    }
+    await Promise.all([...grouped].map(([parent, names]) => writeStatus(parent, { order: names })));
   };
   const appearance = (n: Note) => n.archived
     ? { mark: config().get<string>('archiveMark', '$(archive)'), color: config().get<string>('archiveColor', '#808080') || undefined }
@@ -270,7 +288,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
     async function walkNote(id: string, parent: string, entries: readonly [string, vscode.FileType][], ancestorArchived = false): Promise<void> {
-      const explicitArchive = await readArchiveStatus(id, entries);
+      const explicitArchive = await readArchiveStatus(id);
       const inheritedArchive = ancestorArchived || explicitArchive === true;
       const archived = inheritedArchive && explicitArchive !== false;
       const attachments: Attachment[] = [];
@@ -296,15 +314,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (hasIndex(entries)) await walkNote(id, '', entries);
     }
     if (disposed) return;
-    if (legacyStatePending) {
-      await context.globalState.update(archiveStateKey, []);
-      await context.globalState.update(unarchiveStateKey, []);
-      legacyStatePending = false;
+    const statuses = new Map<string, NoteStatus>();
+    await Promise.all(['', ...found.map(note => note.id)].map(async id => statuses.set(id, await readStatus(id))));
+    const legacyByParent = new Map<string, string[]>();
+    for (const id of legacyOrder) {
+      const parent = path.posix.dirname(id) === '.' ? '' : path.posix.dirname(id);
+      const names = legacyByParent.get(parent) ?? [];
+      names.push(path.posix.basename(id));
+      legacyByParent.set(parent, names);
     }
-    notes = found.sort((a, b) => {
-      const ai = order.indexOf(a.id), bi = order.indexOf(b.id);
-      return (ai < 0 ? Infinity : ai) - (bi < 0 ? Infinity : bi) || a.id.localeCompare(b.id, 'ja', { numeric: true });
-    });
+    const byParent = new Map<string, Note[]>();
+    for (const note of found) {
+      const siblings = byParent.get(note.parent) ?? [];
+      siblings.push(note);
+      byParent.set(note.parent, siblings);
+    }
+    const ordered: Note[] = [];
+    const visit = (parent: string): void => {
+      const preferred = statuses.get(parent)?.order ?? legacyByParent.get(parent) ?? [];
+      const rank = new Map(preferred.map((name, index) => [name, index]));
+      const siblings = [...(byParent.get(parent) ?? [])].sort((a, b) => {
+        const ai = rank.get(path.posix.basename(a.id)), bi = rank.get(path.posix.basename(b.id));
+        return (ai === undefined ? Infinity : ai) - (bi === undefined ? Infinity : bi)
+          || a.id.localeCompare(b.id, 'ja', { numeric: true });
+      });
+      for (const note of siblings) { ordered.push(note); visit(note.id); }
+    };
+    visit('');
+    notes = ordered;
+    order = ordered.map(note => note.id);
+    if (legacyOrder.length) {
+      await writeNoteOrder(order);
+      legacyOrder = [];
+      await context.globalState.update(legacyOrderKey, undefined);
+    }
     events.fire(); tagEvents.fire(); await tree.update(notes); await tags.update(await tagRows()); decorate(); renderResults();
   }
   let refreshQueue = Promise.resolve();
@@ -390,7 +433,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await ensureAbsent(id);
     await vscode.workspace.fs.createDirectory(uri(id));
     await vscode.workspace.fs.writeFile(file(id), Buffer.from(`# ${name}\n\n`));
-    await refresh(); await open(id);
+    await refresh(); await writeNoteOrder(order); await open(id);
   }
   async function applyNoteEdit(edit: NoteEdit): Promise<void> {
     const validation = validateName(edit.name);
@@ -533,7 +576,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (id !== destination) edit.renameFile(uri(id), uri(destination), { overwrite: false });
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not move the note.');
     order = order.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry);
-    await context.globalState.update(`order:${root.toString()}`, order);
+    await writeNoteOrder(order);
     await refresh();
   }
   async function move(id: string, parent: string) {
@@ -545,7 +588,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const plan = planNoteDrop(notes, id, target, position);
     await relocate(id, plan.destination);
     order = plan.order;
-    await context.globalState.update(`order:${root.toString()}`, order);
+    await writeNoteOrder(order);
     await refresh();
     const moved = notes.find(note => note.id === plan.destination);
     if (moved) await tree.reveal(moved);
@@ -781,7 +824,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!other) return;
     const ids = notes.map(p => p.id), a = ids.indexOf(n.id), b = ids.indexOf(other.id);
     [ids[a], ids[b]] = [ids[b], ids[a]]; order = ids;
-    await context.globalState.update(`order:${root.toString()}`, order); await refresh();
+    await writeNoteOrder(order); await refresh();
   });
   command('delete', async (n?: Note) => {
     n = selected(n); if (!n) return;
@@ -789,7 +832,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (await vscode.window.showWarningMessage(`Delete "${n.name}" and its child notes (${count} ${count === 1 ? 'note' : 'notes'} in total)?`, { modal: true }, 'Delete') !== 'Delete') return;
     const edit = new vscode.WorkspaceEdit(); edit.deleteFile(uri(n.id), { recursive: true });
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not delete the note.');
-    await refresh();
+    await refresh(); await writeNoteOrder(order);
   });
   const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, '**/*'));
   context.subscriptions.push(events, tagEvents, tree, tags, watcher,

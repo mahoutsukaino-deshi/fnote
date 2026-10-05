@@ -6,7 +6,7 @@ const vm = require('node:vm');
 const path = require('node:path');
 
 function setup(tagMode = false, platform = '') {
-  const sent = [], listeners = new Map(), documentListeners = new Map();
+  const sent = [], states = [], listeners = new Map(), documentListeners = new Map();
   let document;
   class Element {
     children = []; dataset = {}; style = {}; handlers = {}; classes = new Set();
@@ -34,9 +34,9 @@ function setup(tagMode = false, platform = '') {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {
     document, window: { scrollY: 0, scrollTo() {}, addEventListener: (type, fn) => listeners.set(type, fn) },
     navigator: { platform },
-    acquireVsCodeApi: () => ({ getState: () => ({}), setState() {}, postMessage: msg => sent.push(msg) })
+    acquireVsCodeApi: () => ({ getState: () => ({}), setState: state => states.push(state), postMessage: msg => sent.push(msg) })
   });
-  return { document, body, tree, sent, documentListeners, message: data => listeners.get('message')({ data }) };
+  return { document, body, tree, sent, states, documentListeners, message: data => listeners.get('message')({ data }) };
 }
 
 test('after the host delivers a Shift-drag, webview events do not reactivate its drop overlay', async () => {
@@ -116,6 +116,14 @@ test('リネーム入力では標準のコピー操作を有効にする', () =>
   message({ type: 'edit', mode: 'rename', id: 'note' });
   const input = tree.children.find(row => row.dataset.id === 'note').children[1];
   assert.deepEqual(JSON.parse(input.dataset.vscodeContext), { preventDefaultContextMenuItems: false });
+});
+
+test('開いている項目はWebviewの永続状態に保存しない', () => {
+  const { tree, states, message } = setup();
+  message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  tree.children[0].onclick();
+  assert.ok(states.length > 0);
+  assert.ok(states.every(state => !Object.hasOwn(state, 'active')));
 });
 
 test('ノート一覧のショートカットを選択対象に応じて送信する', () => {

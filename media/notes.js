@@ -4,14 +4,14 @@
   const tagMode = document.body.dataset.tags === 'true';
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
   const saved = api.getState() || {};
-  let rows = [], selected = saved.selected, active = saved.active, collapsed = new Set(saved.collapsed || []);
+  let rows = [], selected = saved.selected, active, collapsed = new Set(saved.collapsed || []);
   const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pending, editing, editInput;
   const within = (id, parent) => {
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
   };
-  const persist = () => api.setState({ selected, active, collapsed: [...collapsed], dateBranches: [...dateBranches] });
+  const persist = () => api.setState({ selected, collapsed: [...collapsed], dateBranches: [...dateBranches] });
   const send = (type, id, rest = {}) => api.postMessage({ type, id, ...rest });
   function select(id, focus = false) {
     selected = id; persist();

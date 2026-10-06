@@ -188,7 +188,7 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
         await this.updateArchiveContext(messageNote);
         if (message.type === 'open') {
           this.activeId = message.id;
-          if (this.tagMode) await vscode.commands.executeCommand('fnote.filter', message.id);
+          if (this.tagMode) await vscode.commands.executeCommand('fnote.filter', message.id, true);
           else await vscode.commands.executeCommand('fnote.open', message.id, undefined, true);
         }
         if (!this.tagMode && message.type === 'command' && 'command' in message && typeof message.command === 'string' && ['addChild', 'addAttachment', 'rename', 'archive', 'move', 'up', 'down', 'delete'].includes(message.command)) {

@@ -737,10 +737,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
     panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
   }
-  function filter(tag: string) {
+  function filter(tag: string, preserveFocus = false) {
     activeTag = tag;
     activeQuery = undefined;
-    showResults(tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`);
+    showResults(tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`, preserveFocus);
   }
   async function search() {
     const query = await vscode.window.showInputBox({
@@ -753,7 +753,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     activeTag = undefined;
     showResults(`Search: ${activeQuery}`);
   }
-  function showResults(title: string) {
+  function showResults(title: string, preserveFocus = false) {
     if (!panel) {
       panel = vscode.window.createWebviewPanel('fnote.results', `fnote: ${title}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
       panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
@@ -764,7 +764,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return open(message.id, offset);
       }), null, context.subscriptions);
     }
-    panel.title = `fnote: ${title}`; renderResults(); panel.reveal();
+    panel.title = `fnote: ${title}`; renderResults(); panel.reveal(undefined, preserveFocus);
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
   command('closeAllNotes', async () => {

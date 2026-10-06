@@ -23,6 +23,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   let html = "",
     panelCount = 0,
     panelDisposeCount = 0,
+    panelReveals = [],
     receiveMessage,
     configurationChanged,
     selectionChanged,
@@ -236,7 +237,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
             panelDisposeCount++;
             onDispose?.();
           },
-          reveal() {},
+          reveal(...args) { panelReveals.push(args); },
           onDidDispose: (handler) => {
             onDispose = handler;
             return disposable();
@@ -528,6 +529,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.match(html, /音楽/);
     assert.match(html, /曲/);
     assert.match(html, /<p>1 note<\/p>/);
+    await tagMessage({ type: "open", id: "TODO" });
+    assert.deepEqual(panelReveals.at(-1), [undefined, true], "タグ選択後もタグ一覧にフォーカスを残す");
     settings.set("tagHierarchy", { 状態: ["TODO", "WAIT"] });
     await run("refresh");
     assert.equal(tagRows.find((row) => row.id === "TODO").parent, "状態");

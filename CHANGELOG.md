@@ -2,6 +2,10 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## v0.1.9
+
+- Keep focus in the tag list after selecting a tag so the Up and Down arrow keys can move between tags like they do in the note list.
+
 ## v0.1.8
 
 - Add inline name editing when creating or renaming notes and attachments.

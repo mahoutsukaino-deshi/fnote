@@ -58,6 +58,8 @@ These shortcuts work while the note list has focus:
 
 Arrow keys change the selection without opening another note. `Enter` opens the item while keeping focus in the list. The open note’s background and the keyboard selection outline are shown separately.
 
+The tag list also keeps focus after opening tag results, so `↑` / `↓` can be used to move between tags without reaching for the mouse.
+
 Use the list’s title-bar buttons to expand or collapse everything, or close all open fnote notes and search results.
 
 ## Useful features

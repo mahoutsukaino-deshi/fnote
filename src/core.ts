@@ -451,6 +451,14 @@ export function timeTagMinutes(tag: string): number | undefined {
   return minutes >= 0 ? minutes : undefined;
 }
 
+export function timeTagStartMinutes(tag: string): number | undefined {
+  const match = /^(\d{2}):(\d{2})(?:-\d{0,2}(?::\d{0,2})?)?$/.exec(tag);
+  if (!match) return undefined;
+  const hour = Number(match[1]), minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return undefined;
+  return hour * 60 + minute;
+}
+
 // Only times on a line with exactly one date belong to that day. Full-document
 // tag ranges preserve code exclusions when processing search-result snippets.
 export function minutesForDate(text: string, lines: readonly ContentMatch[], date: string, tags = parseTags(text)): number | undefined {

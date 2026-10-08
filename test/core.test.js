@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const {
   formatWorkMinutes,
   timeTagMinutes,
+  timeTagStartMinutes,
   minutesForDate,
   isTimeTag,
   planNoteDrop,
@@ -445,6 +446,11 @@ test("日付と時刻は同じ行だけを集計し、コード・曖昧な日�
   assert.equal(timeTagMinutes("23:00-24:01"), undefined);
   assert.equal(timeTagMinutes("1h"), 60);
   assert.equal(timeTagMinutes("0m"), 0);
+  assert.equal(timeTagStartMinutes("08:30-09:00"), 510);
+  assert.equal(timeTagStartMinutes("08:30-"), 510);
+  assert.equal(timeTagStartMinutes("08:30-11"), 510);
+  assert.equal(timeTagStartMinutes("08:30"), 510);
+  assert.equal(timeTagStartMinutes("25:00"), undefined);
 });
 
 test("合計時間をh・m形式で表示する", () => {

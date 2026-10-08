@@ -82,6 +82,10 @@ Use `@YYYY/MM/DD` for dates, `@30m` or `@1h` for whole-number durations, and `@1
 
 Unfinished entries such as `@10:00` or `@10:00-` appear under **Incomplete time tags**, so you can find and complete them. They do not contribute to totals.
 
+Set `fnote.dateTagSort` to `"time"` to group date-tag results by date and sort individual entry lines by time across notes. Each entry is followed by its note and Markdown heading path, separated by ` / `, with duration totals. Click an entry to jump to its source line. Lines containing multiple times use the earliest time; untimed lines appear last within their date. The **Sort** button in date-tag results switches between Notes and Time dynamically; `fnote.dateTagSort` provides the initial mode. The default `"note"` keeps the note-list order.
+
+Timeline entries display date and time first, followed by other tags such as `@TODO` and remaining text. Leading Markdown list markers are hidden.
+
 ### Attachments and links
 
 Use **Add Attachment** in a note’s context menu, or hold **Shift** while dropping external files onto a note in the list or into its Markdown editor. The list also accepts folders. For editor drops, keep `editor.dropIntoEditor.enabled` enabled and choose **Copy attachments into fnote** if prompted.
@@ -136,6 +140,7 @@ Earlier entries have priority when choosing a note icon; date and time tags are 
 | `fnote.defaultTagMark`                           | Default tag icon (`$(circle-filled-compact)`)      |
 | `fnote.tagColor` / `fnote.tagBackgroundColor`    | Default tag text and background colors             |
 | `fnote.headingMark` / `fnote.headingMarkColor`   | Mark and color for Markdown headings in the note list (`#`, `#808080`) |
+| `fnote.dateTagSort`                              | Initial date-tag result order: `note` or `time` |
 | `fnote.linkMark`                                 | Link icon (`$(link-external)`)                     |
 | `fnote.attachmentMark` / `fnote.attachmentColor` | Attachment icon (`$(attach)`) and color            |
 | `fnote.archiveMark` / `fnote.archiveColor`       | Archive icon (`$(archive)`) and color (`#808080`)  |

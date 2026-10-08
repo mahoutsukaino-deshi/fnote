@@ -156,6 +156,10 @@
         "command": "fnote.closeAllNotes",
         "title": "fnote: Close All Open Notes",
         "icon": "$(close-all)"
+      },
+      {
+        "command": "fnote.toggleDateTagSort",
+        "title": "fnote: Change Date Tag Sort"
       }
     ],
     "keybindings": [
@@ -336,6 +340,19 @@
           "default": "#808080",
           "description": "Color of the Markdown heading mark in the note list.",
           "format": "color"
+        },
+        "fnote.dateTagSort": {
+          "type": "string",
+          "enum": [
+            "note",
+            "time"
+          ],
+          "enumDescriptions": [
+            "Keep the note list order.",
+            "Group entries by date and sort individual lines by time across notes, showing their note and heading paths."
+          ],
+          "default": "note",
+          "description": "Initial display mode for date-tag results. In time mode, lines without a time appear last within their date."
         },
         "fnote.linkMark": {
           "type": "string",

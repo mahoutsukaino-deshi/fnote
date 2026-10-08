@@ -284,3 +284,22 @@ test('Codiconを文字列として表示せず色付きのアイコン要素に�
   assert.equal(icon.children[2].textContent, '資料');
   assert.equal(tree.children[1].children[1].textContent, '✅ 完了');
 });
+
+test('Markdown見出しにノートのタグアイコンと設定した見出しマークを表示する', () => {
+  const { tree, message } = setup();
+  message({ type: 'notes', rows: [
+    { id: 'note', parent: '', label: 'ノート' },
+    {
+      id: 'heading', parent: 'note', label: '見出し', noteId: 'note',
+      appearance: { mark: '$(book)', color: '#123456' },
+      outlineMark: { mark: '#', color: '#654321' },
+    },
+  ] });
+  const row = tree.children.find(item => item.dataset.id === 'heading');
+  assert.equal(row.children[1].className, 'note-icon codicon codicon-book');
+  assert.equal(row.children[1].style.color, '#123456');
+  assert.equal(row.children[2].className, 'note-icon heading-mark');
+  assert.equal(row.children[2].textContent, '#');
+  assert.equal(row.children[2].style.color, '#654321');
+  assert.equal(row.children[3].textContent, '見出し');
+});

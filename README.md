@@ -119,6 +119,8 @@ The available VS Code icons are listed in the [VS Code Codicons](https://microso
     { "tag": "Incomplete time tags", "mark": "$(clock)", "color": "#fbbf24", "excludeFromNoteMark": true },
     { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
   ],
+  "fnote.headingMark": "#",
+  "fnote.headingMarkColor": "#808080",
   "fnote.archiveMark": "$(archive)",
   "fnote.archiveColor": "#808080"
 }
@@ -133,6 +135,7 @@ Earlier entries have priority when choosing a note icon; date and time tags are 
 | `fnote.untaggedNoteMark`                         | Icon for notes without an eligible tag (`$(note)`) |
 | `fnote.defaultTagMark`                           | Default tag icon (`$(circle-filled-compact)`)      |
 | `fnote.tagColor` / `fnote.tagBackgroundColor`    | Default tag text and background colors             |
+| `fnote.headingMark` / `fnote.headingMarkColor`   | Mark and color for Markdown headings in the note list (`#`, `#808080`) |
 | `fnote.linkMark`                                 | Link icon (`$(link-external)`)                     |
 | `fnote.attachmentMark` / `fnote.attachmentColor` | Attachment icon (`$(attach)`) and color            |
 | `fnote.archiveMark` / `fnote.archiveColor`       | Archive icon (`$(archive)`) and color (`#808080`)  |

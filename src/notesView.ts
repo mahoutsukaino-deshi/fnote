@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
 import * as crypto from 'node:crypto';
-import { parseHeadings, type Attachment, type Note } from './core';
+import { parseHeadings, type Attachment, type Note, type TagMatch } from './core';
 
-interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number }
+interface MarkAppearance { mark: string; color?: string }
+interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number; appearance?: MarkAppearance; collapsedAppearance?: MarkAppearance; outlineMark?: MarkAppearance }
 
 export type DropPosition = 'before' | 'after' | 'inside';
 export type NoteEdit = { mode: 'create' | 'rename'; id?: string; parent?: string; name: string };
@@ -21,6 +22,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     private readonly tagMode = false,
     private readonly collapsedLabel?: (note: Note) => string,
     private readonly appearance?: (note: Note, collapsed: boolean) => { mark: string; color?: string },
+    private readonly headingAppearance?: (tags: readonly TagMatch[]) => MarkAppearance | undefined,
+    private readonly outlineMark?: () => MarkAppearance,
     private readonly attachmentAppearance?: (attachment: Attachment) => { mark: string; color?: string },
     private readonly onEdit?: (edit: NoteEdit) => Promise<void>
   ) {}
@@ -65,12 +68,21 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     const attachments = notes.flatMap(note => note.attachments ?? []);
     this.outline = this.tagMode ? [] : notes.flatMap(note => {
       const rows: OutlineRow[] = [];
+      const headings = parseHeadings(note.text);
       const stack: { level: number; id: string }[] = [];
-      for (const heading of parseHeadings(note.text)) {
+      for (let index = 0; index < headings.length; index++) {
+        const heading = headings[index];
         if (heading.level === 1) { stack.length = 0; continue; }
         while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop();
         const id = `\0heading:${note.id}:${heading.start}`;
-        rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start });
+        const nextHeading = headings[index + 1];
+        const ownTags = note.tags.filter(tag => tag.start >= heading.start && tag.start < (nextHeading?.start ?? note.text.length));
+        const subtreeEnd = headings.slice(index + 1).find(next => next.level <= heading.level)?.start ?? note.text.length;
+        const descendantTags = note.tags.filter(tag => tag.start >= (nextHeading?.start ?? subtreeEnd) && tag.start < subtreeEnd);
+        const ownAppearance = this.headingAppearance?.(ownTags);
+        const descendantAppearance = this.headingAppearance?.(descendantTags);
+        rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start,
+          appearance: ownAppearance, collapsedAppearance: descendantAppearance ?? ownAppearance, outlineMark: this.outlineMark?.() });
         stack.push({ level: heading.level, id });
       }
       return rows;

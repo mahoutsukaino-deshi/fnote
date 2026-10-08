@@ -119,6 +119,8 @@ VS Codeの設定画面で **`@ext:maoren.fnote`** を検索すると、fnoteの�
     { "tag": "Incomplete time tags", "mark": "$(clock)", "color": "#fbbf24", "excludeFromNoteMark": true },
     { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
   ],
+  "fnote.headingMark": "#",
+  "fnote.headingMarkColor": "#808080",
   "fnote.archiveMark": "$(archive)",
   "fnote.archiveColor": "#808080"
 }
@@ -133,6 +135,7 @@ VS Codeの設定画面で **`@ext:maoren.fnote`** を検索すると、fnoteの�
 | `fnote.untaggedNoteMark`                         | アイコン候補のタグがないノートの印（`$(note)`）       |
 | `fnote.defaultTagMark`                           | タグの既定アイコン（`$(circle-filled-compact)`）      |
 | `fnote.tagColor` / `fnote.tagBackgroundColor`    | タグの既定文字色・背景色                              |
+| `fnote.headingMark` / `fnote.headingMarkColor`   | ノート一覧のMarkdown見出しに付ける印と色（`#`、`#808080`） |
 | `fnote.linkMark`                                 | リンクのアイコン（`$(link-external)`）                |
 | `fnote.attachmentMark` / `fnote.attachmentColor` | 添付のアイコン（`$(attach)`）と色                     |
 | `fnote.archiveMark` / `fnote.archiveColor`       | アーカイブのアイコン（`$(archive)`）と色（`#808080`） |

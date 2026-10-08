@@ -70,6 +70,19 @@
     const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1; toggle.textContent = '';
     row.append(toggle); addInlineEditor(row, ''); tree.append(row);
   }
+  function appendMark(row, appearance, extraClass = '') {
+    const value = appearance?.mark || '';
+    if (!value) return;
+    const icon = /^\$\(([a-z0-9-]+)\)$/i.exec(value);
+    const mark = document.createElement('span');
+    mark.className = icon
+      ? `note-icon codicon codicon-${icon[1]}${extraClass ? ` ${extraClass}` : ''}`
+      : `note-icon${extraClass ? ` ${extraClass}` : ''}`;
+    if (!icon) mark.textContent = value;
+    mark.setAttribute('aria-hidden', 'true');
+    if (appearance.color) mark.style.color = appearance.color;
+    row.append(mark);
+  }
   function render() {
     const scroll = window.scrollY;
     const hadFocus = tree.contains(document.activeElement);
@@ -96,7 +109,10 @@
         if (icon && label.textContent.startsWith(appearance.mark + ' ')) label.textContent = label.textContent.slice(appearance.mark.length + 1);
         const renaming = editing?.mode === 'rename' && editing.id === note.id;
         if (!renaming) {
-          if (icon) {
+          if (note.noteId) {
+            appendMark(row, appearance);
+            appendMark(row, note.outlineMark, 'heading-mark');
+          } else if (icon) {
             const mark = document.createElement('span');
             mark.className = `note-icon codicon codicon-${icon[1]}`;
             mark.setAttribute('aria-hidden', 'true');

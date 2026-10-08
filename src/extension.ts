@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
-import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
+import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch, TagMatch } from './core';
 import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
@@ -225,6 +225,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const appearance = (n: Note) => n.archived
     ? { mark: config().get<string>('archiveMark', '$(archive)'), color: config().get<string>('archiveColor', '#808080') || undefined }
     : noteAppearance(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '$(note)'), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
+  const headingAppearance = (tags: readonly TagMatch[]) => {
+    const result = noteAppearance(tags, config().get<TagStyles>('tagStyles', {}), '', config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
+    return result.mark ? result : undefined;
+  };
   const marks = (n: Note) => appearance(n).mark;
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
@@ -246,7 +250,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, false, note => {
     const mark = marks({ ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) });
     return `${mark ? `${mark} ` : ''}${note.name}`;
-  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), () => {
+  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), headingAppearance, () => {
+    const mark = linkMark(config().get<string>('headingMark', '#'));
+    return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('headingMarkColor', '#808080') || undefined };
+  }, () => {
     const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
   }, applyNoteEdit);
@@ -295,7 +302,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     tagDropQueue = operation;
     await operation;
-  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()));
+  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()), undefined);
   async function tagRows(): Promise<Note[]> {
     const rows: Note[] = [];
     async function visit(nodes: Iterable<TagNode>, parent: string): Promise<void> {

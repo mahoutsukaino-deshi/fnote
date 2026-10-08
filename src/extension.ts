@@ -140,7 +140,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let panel: vscode.WebviewPanel | undefined;
   let activeTag: string | undefined;
   let activeQuery: string | undefined;
-  let decorations: vscode.TextEditorDecorationType[] = [];
+  const decorationTypes = new Map<string, vscode.TextEditorDecorationType>();
+  let decoratedEditors = new Set<vscode.TextEditor>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const legacyOrderKey = `order:${root.toString()}`;
@@ -354,15 +355,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   function refresh() { refreshQueue = refreshQueue.catch(() => {}).then(scan); return refreshQueue; }
   function schedule() { clearTimeout(timer); timer = setTimeout(guard(refresh), 180); }
   function decorate() {
-    for (const decoration of decorations) decoration.dispose();
-    decorations = [];
     const styles = config().get<TagStyles>('tagStyles', {});
     const linkColor = markdownLinkColor(
       vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
       vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
     ) ?? new vscode.ThemeColor('textLink.foreground');
-    for (const editor of vscode.window.visibleTextEditors) {
-      if (!notes.some(n => file(n.id).toString() === editor.document.uri.toString())) continue;
+    const visibleEditors = vscode.window.visibleTextEditors.filter(editor => notes.some(n => file(n.id).toString() === editor.document.uri.toString()));
+    const rangesByEditor = new Map<vscode.TextEditor, Map<vscode.TextEditorDecorationType, vscode.Range[]>>();
+    const getDecoration = (key: string, options: vscode.DecorationRenderOptions): vscode.TextEditorDecorationType => {
+      let decoration = decorationTypes.get(key);
+      if (!decoration) {
+        decoration = vscode.window.createTextEditorDecorationType(options);
+        decorationTypes.set(key, decoration);
+      }
+      return decoration;
+    };
+    const addRanges = (editor: vscode.TextEditor, decoration: vscode.TextEditorDecorationType, ranges: vscode.Range[]): void => {
+      const byDecoration = rangesByEditor.get(editor) ?? new Map<vscode.TextEditorDecorationType, vscode.Range[]>();
+      byDecoration.set(decoration, [...(byDecoration.get(decoration) ?? []), ...ranges]);
+      rangesByEditor.set(editor, byDecoration);
+    };
+    const colorKey = (color: string | vscode.ThemeColor): string => typeof color === 'string' ? color : `theme:${color.toString()}`;
+    for (const editor of visibleEditors) {
       const groups = new Map<string, { color: string; backgroundColor: string; ranges: vscode.Range[] }>();
       for (const tag of parseTags(editor.document.getText())) {
         const style = styleFor(tag.tag, styles);
@@ -373,8 +387,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         groups.get(key)!.ranges.push(new vscode.Range(editor.document.positionAt(tag.start), editor.document.positionAt(tag.end)));
       }
       for (const { color, backgroundColor, ranges } of groups.values()) {
-        const decoration = vscode.window.createTextEditorDecorationType({ color, backgroundColor: backgroundColor || undefined });
-        decorations.push(decoration); editor.setDecorations(decoration, ranges);
+        const decoration = getDecoration(`tag:${JSON.stringify([color, backgroundColor])}`, { color, backgroundColor: backgroundColor || undefined });
+        addRanges(editor, decoration, ranges);
       }
       const hidden: vscode.Range[] = [];
       const note = notes.find(item => file(item.id).toString() === editor.document.uri.toString());
@@ -391,23 +405,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (link.start < link.displayStart) hidden.push(new vscode.Range(range.start, editor.document.positionAt(link.displayStart)));
         if (link.displayEnd < link.end) hidden.push(new vscode.Range(editor.document.positionAt(link.displayEnd), range.end));
       }
-      for (const { mark, color, ranges } of linkGroups.values()) {
+      for (const [group, { mark, color, ranges }] of linkGroups) {
         const before: vscode.ThemableDecorationAttachmentRenderOptions | undefined = mark.icon
           ? {
             contentText: '\u00a0', color, width: '1em', height: '1em', margin: '0 0.25em 0 0',
             textDecoration: `none; display:inline-block; vertical-align:-0.35em; background-color:currentColor; mask:url("${linkIconUri(mark.icon)}") center / contain no-repeat`
           }
           : mark.text ? { contentText: mark.text, color, margin: '0 0.25em 0 0' } : undefined;
-        const decoration = vscode.window.createTextEditorDecorationType({
-          color, before
-        });
-        decorations.push(decoration); editor.setDecorations(decoration, ranges);
+        const decoration = getDecoration(`link:${JSON.stringify([group, colorKey(color), mark])}`, { color, before });
+        addRanges(editor, decoration, ranges);
       }
-      if (hidden.length) {
-        const decoration = vscode.window.createTextEditorDecorationType({ textDecoration: 'none; display: none' });
-        decorations.push(decoration); editor.setDecorations(decoration, hidden);
-      }
+      if (hidden.length) addRanges(editor, getDecoration('hidden', { textDecoration: 'none; display: none' }), hidden);
     }
+    const usedDecorations = new Set([...rangesByEditor.values()].flatMap(ranges => [...ranges.keys()]));
+    for (const [key, decoration] of decorationTypes) {
+      if (usedDecorations.has(decoration)) continue;
+      decoration.dispose();
+      decorationTypes.delete(key);
+    }
+    const editors = new Set([...decoratedEditors, ...visibleEditors]);
+    for (const editor of editors) {
+      const ranges = rangesByEditor.get(editor);
+      for (const decoration of usedDecorations) editor.setDecorations(decoration, ranges?.get(decoration) ?? []);
+    }
+    decoratedEditors = new Set(visibleEditors);
   }
   async function open(id: string, offset?: number, preserveFocus = false) {
     if (!notes.some(n => n.id === id)) return;
@@ -846,6 +867,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const n = notes.find(n => file(n.id).toString() === editor?.document.uri.toString());
       if (n) await tree.reveal(n);
     })),
-    { dispose() { disposed = true; clearTimeout(timer); decorations.forEach(d => d.dispose()); panel?.dispose(); } });
+    { dispose() { disposed = true; clearTimeout(timer); decorationTypes.forEach(d => d.dispose()); panel?.dispose(); } });
   await refresh();
 }

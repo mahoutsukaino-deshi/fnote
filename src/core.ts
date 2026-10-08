@@ -100,7 +100,7 @@ export function parseNoteLinks(text: string, includeExternal = false): { target:
     if (!source.startsWith('[')) return [];
     const target = link.target;
     const external = /^[a-z][a-z\d+.-]*:/i.test(target);
-    if (!target || target.startsWith('/') || (external && !includeExternal) || (!external && /[?#]/.test(target))) return [];
+    if (!target || target.startsWith('/') || (external && !includeExternal) || (!external && target.includes('?'))) return [];
     return [{ target, start: link.displayStart, end: link.displayEnd }];
   });
 }

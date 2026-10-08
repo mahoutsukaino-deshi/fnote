@@ -15,7 +15,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs = [],
     picks = [];
   const disposable = () => ({ dispose() {} });
-  const uri = (p) => ({ fsPath: p, toString: () => `file://${p}` });
+  const uri = (p, fragment) => ({
+    fsPath: p,
+    fragment,
+    toString: () => `file://${p}${fragment ? `#${fragment}` : ''}`,
+    with: change => uri(p, change.fragment),
+  });
   const fileError = (e) => {
     if (e.code === "ENOENT") e.code = "FileNotFound";
     throw e;
@@ -350,6 +355,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual(externalLinks.map(link => externalText.slice(link.range.start.offset, link.range.end.offset)), ['mybest', 'https://example.com/']);
     assert.equal(externalLinks[0].target.toString(), 'https://my-best.com/3185?utm_source=google&utm_medium=cpc&gclid=example');
     assert.equal(externalLinks[1].target.toString(), 'https://example.com/');
+    const fragmentText = '[](#title)\n# Title';
+    const fragmentLinks = await linkProvider.provideDocumentLinks({ ...linkDocument, getText: () => fragmentText });
+    assert.equal(fragmentLinks.length, 1);
+    assert.equal(fragmentLinks[0].target.fsPath, linkDocument.uri.fsPath);
+    assert.equal(fragmentLinks[0].target.fragment, 'L2');
     await fs.rm(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.unlink(path.join(temp, ".fnote/plain"));
     const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);

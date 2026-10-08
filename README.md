@@ -88,7 +88,7 @@ Use **Add Attachment** in a note’s context menu, or hold **Shift** while dropp
 
 Attachments appear beneath their note and can be opened, renamed, deleted, or moved to another note by dragging within the list. Internal note and attachment drags do not require Shift.
 
-Link to another note with `[[../Travel]]` or `[Travel plans](../Travel)`. Directory links open the `index.md` inside them. Supported relative Markdown and wiki links are updated when notes are moved or renamed.
+Link to another note with `[[../Travel]]` or `[Travel plans](../Travel)`. Use `[](#title)` to jump to a heading in the current note, or add the fragment to another note link. Ctrl+Click follows the link. Directory links open the `index.md` inside them. Supported relative Markdown and wiki links are updated when notes are moved or renamed.
 
 Links display an icon and their label or destination. Place the cursor on a link to edit its original syntax; the saved Markdown stays unchanged.
 

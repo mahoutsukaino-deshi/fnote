@@ -2,6 +2,11 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## v0.1.10
+
+- Prevent Markdown link syntax from briefly appearing while typing by reusing link decorations instead of disposing and recreating them.
+- Support Ctrl+Click navigation for Markdown links to headings in the current or another note, such as `[](#title)`.
+
 ## v0.1.9
 
 - Keep focus in the tag list after selecting a tag so the Up and Down arrow keys can move between tags like they do in the note list.

@@ -33,6 +33,25 @@ function validAttachmentPath(name: string): boolean {
     && name.toLowerCase() !== 'index.md';
 }
 
+function headingLine(text: string, fragment: string): number | undefined {
+  if (/^L?\d+(?:,\d+)?(?:-L?\d+(?:,\d+)?)?$/i.test(fragment)) return undefined;
+  const wanted = fragment.replace(/^_/, '').normalize('NFKC').toLocaleLowerCase();
+  const used = new Map<string, number>();
+  for (const heading of parseHeadings(text)) {
+    const base = heading.title.normalize('NFKC').toLocaleLowerCase()
+      .replace(/[\`*_~]/g, '')
+      .replace(/[^\p{L}\p{N}\s-]/gu, '')
+      .trim()
+      .replace(/\s+/g, '-');
+    if (!base) continue;
+    const count = used.get(base) ?? 0;
+    used.set(base, count + 1);
+    const slug = count ? `${base}-${count}` : base;
+    if (slug === wanted) return text.slice(0, heading.start).split(/\r?\n/).length;
+  }
+  return undefined;
+}
+
 function isAttachmentLink(note: Note, target: string): boolean {
   if (!target || target.startsWith('/') || /[?#]/.test(target) || /^[a-z][a-z\d+.-]*:/i.test(target)) return false;
   let decoded: string;
@@ -73,21 +92,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const links = await Promise.all(parseNoteLinks(document.getText(), true).map(async link => {
         const external = /^[a-z][a-z\d+.-]*:/i.test(link.target);
         let target = link.target;
+        let targetPath = link.target;
+        let fragment: string | undefined;
         if (!external) {
-          try { target = decodeURIComponent(link.target); } catch { return []; }
+          const hash = link.target.indexOf('#');
+          const rawPath = hash < 0 ? link.target : link.target.slice(0, hash);
+          const rawFragment = hash < 0 ? undefined : link.target.slice(hash + 1);
+          if (rawFragment === '') return [];
+          try {
+            targetPath = decodeURIComponent(rawPath);
+            fragment = rawFragment === undefined ? undefined : decodeURIComponent(rawFragment);
+          } catch { return []; }
         }
         const range = new vscode.Range(document.positionAt(link.start), document.positionAt(link.end));
         if (external) {
           return [new vscode.DocumentLink(range, vscode.Uri.parse(target))];
         }
-        const resolved = vscode.Uri.joinPath(document.uri, '..', target);
+        const resolved = targetPath ? vscode.Uri.joinPath(document.uri, '..', targetPath) : document.uri;
         let destination = vscode.Uri.joinPath(resolved, 'index.md');
-        if (!target.endsWith('/')) {
+        if (!targetPath) destination = document.uri;
+        else if (!targetPath.endsWith('/')) {
           try {
             const stat = await vscode.workspace.fs.stat(resolved);
             if (stat.type & vscode.FileType.File) destination = resolved;
             else if (!(stat.type & vscode.FileType.Directory)) return [];
           } catch { return []; }
+        }
+        if (fragment !== undefined) {
+          const text = destination.toString() === document.uri.toString()
+            ? document.getText()
+            : notes.find(note => file(note.id).toString() === destination.toString())?.text;
+          const line = text === undefined ? undefined : headingLine(text, fragment);
+          destination = destination.with({ fragment: line === undefined ? fragment : `L${line}` });
         }
         return [new vscode.DocumentLink(range, destination)];
       }));

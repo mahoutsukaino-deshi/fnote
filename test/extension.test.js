@@ -15,7 +15,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs = [],
     picks = [];
   const disposable = () => ({ dispose() {} });
-  const uri = (p) => ({ fsPath: p, toString: () => `file://${p}` });
+  const uri = (p, fragment) => ({
+    fsPath: p,
+    fragment,
+    toString: () => `file://${p}${fragment ? `#${fragment}` : ''}`,
+    with: change => uri(p, change.fragment),
+  });
   const fileError = (e) => {
     if (e.code === "ENOENT") e.code = "FileNotFound";
     throw e;
@@ -350,6 +355,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual(externalLinks.map(link => externalText.slice(link.range.start.offset, link.range.end.offset)), ['mybest', 'https://example.com/']);
     assert.equal(externalLinks[0].target.toString(), 'https://my-best.com/3185?utm_source=google&utm_medium=cpc&gclid=example');
     assert.equal(externalLinks[1].target.toString(), 'https://example.com/');
+    const fragmentText = '[](#title)\n# Title';
+    const fragmentLinks = await linkProvider.provideDocumentLinks({ ...linkDocument, getText: () => fragmentText });
+    assert.equal(fragmentLinks.length, 1);
+    assert.equal(fragmentLinks[0].target.fsPath, linkDocument.uri.fsPath);
+    assert.equal(fragmentLinks[0].target.fragment, 'L2');
     await fs.rm(path.join(temp, ".fnote/旅行"), { recursive: true });
     await fs.unlink(path.join(temp, ".fnote/plain"));
     const run = (name, ...args) => commands.get(`fnote.${name}`)(...args);
@@ -607,6 +617,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(tagRows.some((row) => row.id === "TODO"), false);
     settings.delete("archiveMark");
     settings.delete("archiveColor");
+    settings.set("tagStyles", [
+      { tag: "HIGH", mark: "$(flag)", markColor: "#123456" },
+      { tag: "LOW", mark: "$(check)", markColor: "#654321" },
+    ]);
     await sidebarMessage({ type: "select", id: "音楽" });
     await run("archive", parent);
     assert.equal(contexts.get("fnote.noteArchived"), false);
@@ -617,7 +631,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run("archive", child);
     assert.equal(tagRows.some((row) => row.id === "TODO"), true);
     const outlineText =
-      "# 音楽\r\n## 節 🎵\r\n#### 小節 `code` ###\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾";
+      "# 音楽\r\n## 節 🎵 @LOW\r\n#### 小節 `code` ### @HIGH\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾 @LOW";
     await fs.writeFile(path.join(temp, ".fnote/音楽/資料.txt"), "attachment");
     await fs.mkdir(path.join(temp, ".fnote/音楽/assets"), { recursive: true });
     await fs.writeFile(path.join(temp, ".fnote/音楽/assets/preview.png"), "image");
@@ -688,9 +702,15 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       }]]), { isCancellationRequested: true });
     assert.equal(cancelled, undefined);
     const outline = noteRows.filter((row) => row.noteId === "音楽");
+    assert.deepEqual(outline[0].appearance, { mark: "$(check)", color: "#654321" });
+    assert.deepEqual(outline[0].collapsedAppearance, { mark: "$(flag)", color: "#123456" });
+    assert.deepEqual(outline[1].appearance, { mark: "$(flag)", color: "#123456" });
+    assert.equal(outline[2].appearance, undefined);
+    assert.deepEqual(outline[3].appearance, { mark: "$(check)", color: "#654321" });
+    assert.deepEqual(outline[0].outlineMark, { mark: "#", color: "#808080" });
     assert.deepEqual(
       outline.map((row) => row.label),
-      ["節 🎵", "小節 `code`", "節 🎵", "末尾"],
+      ["節 🎵 @LOW", "小節 `code` ### @HIGH", "節 🎵", "末尾 @LOW"],
     );
     assert.deepEqual(
       outline.map((row) => row.parent),
@@ -702,6 +722,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       shown.options.selection.start.offset,
       outlineText.indexOf("#### 小節"),
     );
+    settings.set("headingMark", "$(symbol-number)");
+    settings.set("headingMarkColor", "#123456");
+    await run("refresh");
+    assert.deepEqual(noteRows.find((row) => row.noteId === "音楽").outlineMark, { mark: "$(symbol-number)", color: "#123456" });
     await sidebarMessage({
       type: "command",
       id: outline[0].id,
@@ -1178,6 +1202,49 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     await run("refresh");
     assert.match(html, /<h1>.*<span class="work-time">\(4h\)<\/span><\/h1>/);
+    await fs.mkdir(path.join(temp, ".fnote/早い"), { recursive: true });
+    await fs.mkdir(path.join(temp, ".fnote/遅い"), { recursive: true });
+    await fs.writeFile(path.join(temp, ".fnote/早い/index.md"), "# 早い\n@2026/02/13 @08:30-09:00\n@2026/09/02 @08:30-09:00\n@2026/09/13 @08:30-09:00");
+    await fs.writeFile(path.join(temp, ".fnote/遅い/index.md"), "# 遅い\n@2026/11/13 @18:00-19:00\n@2026/09/25 @18:00-19:00\n@2026/09/13 @18:00-19:00");
+    await run("refresh");
+    settings.set("dateTagSort", "time");
+    await run("filter", "2026/09/13");
+    assert.ok(html.indexOf('data-id="早い"') < html.indexOf('data-id="遅い"'));
+    assert.ok(html.indexOf('data-id="音楽"') < html.indexOf('data-id="遅い"'));
+    settings.set("dateTagSort", "date");
+    await run("filter", "2026");
+    assert.ok(html.indexOf('data-id="早い"') < html.indexOf('data-id="遅い"'));
+    assert.deepEqual([...html.matchAll(/<h2>(2026\/\d{2}\/\d{2})<\/h2>/g)].map(match => match[1]), ["2026/02/13", "2026/09/02", "2026/09/13", "2026/09/14", "2026/09/25", "2026/11/13"]);
+    assert.equal((html.match(/data-id="早い" class="match"/g) || []).length, 3);
+    assert.equal((html.match(/data-id="遅い" class="match"/g) || []).length, 3);
+    await fs.writeFile(path.join(temp, ".fnote/早い/index.md"), "# 早い\n## 子見出し\n### 詳細\n@2030/10/08 @13:00-14:00\n@2030/10/08 @11:00-12:00");
+    await fs.writeFile(path.join(temp, ".fnote/遅い/index.md"), "# 遅い\n- @TODO @2030/10/08 @12:00-13:00");
+    await run("refresh");
+    await run("filter", "2030/10/08");
+    const timelineRows = [...html.matchAll(/<li class="timeline-row">(.*?)<\/li>/g)].map(match => match[1]);
+    assert.equal(timelineRows.length, 3);
+    const entryText = /class="content">(.*?)<\/button>/.exec(timelineRows[1])[1].replace(/<[^>]*>/g, '');
+    assert.equal(entryText, '@2030/10/08 @12:00-13:00 @TODO');
+    for (const [index, time] of ["11:00-12:00", "12:00-13:00", "13:00-14:00"].entries()) {
+      assert.ok(timelineRows[index].includes(time));
+    }
+    assert.match(timelineRows[0], /早い<\/button><span class="work-time">\(2h\)<\/span> \/ .*子見出し<\/button><span class="work-time">\(2h\)<\/span> \/ .*詳細<\/button><span class="work-time">\(2h\)<\/span>/);
+    assert.ok(timelineRows[0].includes(`data-offset="${"# 早い\n## 子見出し\n### 詳細\n@2030/10/08 @13:00-14:00\n".length}" class="content"`));
+    await fs.writeFile(path.join(temp, ".fnote/早い/index.md"), "# 早い\n@2026/09/02 @08:30-09:00");
+    await fs.writeFile(path.join(temp, ".fnote/遅い/index.md"), "# 遅い\n@2026/09/25 @18:00-19:00");
+    await run("refresh");
+    await run("filter", "2026/09");
+    assert.ok(html.indexOf('data-id="早い"') < html.indexOf('data-id="遅い"'));
+    assert.match(html, /data-sort-mode="time">Sort: Time<\/button>/);
+    await receiveMessage({ type: "toggleDateTagSort" });
+    assert.match(html, /data-sort-mode="note">Sort: Notes<\/button>/);
+    await receiveMessage({ type: "toggleDateTagSort" });
+    assert.match(html, /data-sort-mode="time">Sort: Time<\/button>/);
+    settings.delete("dateTagSort");
+    configurationChanged({ affectsConfiguration: key => key === "fnote.dateTagSort" });
+    await fs.rm(path.join(temp, ".fnote/早い"), { recursive: true });
+    await fs.rm(path.join(temp, ".fnote/遅い"), { recursive: true });
+    await run("refresh");
     await run("filter", "2026/09/14");
     assert.match(html, /<h1>.*<span class="work-time">\(8h\)<\/span><\/h1>/);
     await run("filter", "2026/09/15");

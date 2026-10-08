@@ -4,8 +4,8 @@ import type { DropPosition, NoteEdit } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
-import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
-import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch } from './core';
+import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, timeTagStartMinutes, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
+import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch, TagMatch } from './core';
 import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
@@ -13,6 +13,9 @@ interface NoteStatus {
   archived?: boolean;
   order?: string[];
 }
+
+type DateTagSortMode = 'note' | 'time';
+const dateTagSortModes: readonly DateTagSortMode[] = ['note', 'time'];
 
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'FileNotFound';
@@ -31,6 +34,25 @@ function validAttachmentPath(name: string): boolean {
   return !!name && !/[\\\x00-\x1f:]/.test(name)
     && name.split('/').every(part => !!part && part !== '.' && part !== '..')
     && name.toLowerCase() !== 'index.md';
+}
+
+function headingLine(text: string, fragment: string): number | undefined {
+  if (/^L?\d+(?:,\d+)?(?:-L?\d+(?:,\d+)?)?$/i.test(fragment)) return undefined;
+  const wanted = fragment.replace(/^_/, '').normalize('NFKC').toLocaleLowerCase();
+  const used = new Map<string, number>();
+  for (const heading of parseHeadings(text)) {
+    const base = heading.title.normalize('NFKC').toLocaleLowerCase()
+      .replace(/[\`*_~]/g, '')
+      .replace(/[^\p{L}\p{N}\s-]/gu, '')
+      .trim()
+      .replace(/\s+/g, '-');
+    if (!base) continue;
+    const count = used.get(base) ?? 0;
+    used.set(base, count + 1);
+    const slug = count ? `${base}-${count}` : base;
+    if (slug === wanted) return text.slice(0, heading.start).split(/\r?\n/).length;
+  }
+  return undefined;
 }
 
 function isAttachmentLink(note: Note, target: string): boolean {
@@ -53,6 +75,11 @@ function resolveStoragePath(setting: string, workspaceFolders: readonly vscode.W
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   const config = () => vscode.workspace.getConfiguration('fnote');
+  const configuredDateTagSort = (): DateTagSortMode => {
+    const value = config().get<string>('dateTagSort', 'note');
+    if (value === 'date') return 'time'; // Compatibility with the former Calendar mode.
+    return dateTagSortModes.includes(value as DateTagSortMode) ? value as DateTagSortMode : 'note';
+  };
   const setting = config().get<string>('storagePath', '~/.fnote');
   const storagePath = resolveStoragePath(setting, vscode.workspace.workspaceFolders);
   if (storagePath === undefined) {
@@ -73,21 +100,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const links = await Promise.all(parseNoteLinks(document.getText(), true).map(async link => {
         const external = /^[a-z][a-z\d+.-]*:/i.test(link.target);
         let target = link.target;
+        let targetPath = link.target;
+        let fragment: string | undefined;
         if (!external) {
-          try { target = decodeURIComponent(link.target); } catch { return []; }
+          const hash = link.target.indexOf('#');
+          const rawPath = hash < 0 ? link.target : link.target.slice(0, hash);
+          const rawFragment = hash < 0 ? undefined : link.target.slice(hash + 1);
+          if (rawFragment === '') return [];
+          try {
+            targetPath = decodeURIComponent(rawPath);
+            fragment = rawFragment === undefined ? undefined : decodeURIComponent(rawFragment);
+          } catch { return []; }
         }
         const range = new vscode.Range(document.positionAt(link.start), document.positionAt(link.end));
         if (external) {
           return [new vscode.DocumentLink(range, vscode.Uri.parse(target))];
         }
-        const resolved = vscode.Uri.joinPath(document.uri, '..', target);
+        const resolved = targetPath ? vscode.Uri.joinPath(document.uri, '..', targetPath) : document.uri;
         let destination = vscode.Uri.joinPath(resolved, 'index.md');
-        if (!target.endsWith('/')) {
+        if (!targetPath) destination = document.uri;
+        else if (!targetPath.endsWith('/')) {
           try {
             const stat = await vscode.workspace.fs.stat(resolved);
             if (stat.type & vscode.FileType.File) destination = resolved;
             else if (!(stat.type & vscode.FileType.Directory)) return [];
           } catch { return []; }
+        }
+        if (fragment !== undefined) {
+          const text = destination.toString() === document.uri.toString()
+            ? document.getText()
+            : notes.find(note => file(note.id).toString() === destination.toString())?.text;
+          const line = text === undefined ? undefined : headingLine(text, fragment);
+          destination = destination.with({ fragment: line === undefined ? fragment : `L${line}` });
         }
         return [new vscode.DocumentLink(range, destination)];
       }));
@@ -140,7 +184,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let panel: vscode.WebviewPanel | undefined;
   let activeTag: string | undefined;
   let activeQuery: string | undefined;
-  let decorations: vscode.TextEditorDecorationType[] = [];
+  let dateTagSortOverride: DateTagSortMode | undefined;
+  const currentDateTagSort = (): DateTagSortMode => dateTagSortOverride ?? configuredDateTagSort();
+  const decorationTypes = new Map<string, vscode.TextEditorDecorationType>();
+  let decoratedEditors = new Set<vscode.TextEditor>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const legacyOrderKey = `order:${root.toString()}`;
@@ -188,6 +235,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const appearance = (n: Note) => n.archived
     ? { mark: config().get<string>('archiveMark', '$(archive)'), color: config().get<string>('archiveColor', '#808080') || undefined }
     : noteAppearance(n.tags, config().get<TagStyles>('tagStyles', {}), config().get<string>('untaggedNoteMark', '$(note)'), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
+  const headingAppearance = (tags: readonly TagMatch[]) => {
+    const result = noteAppearance(tags, config().get<TagStyles>('tagStyles', {}), '', config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
+    return result.mark ? result : undefined;
+  };
   const marks = (n: Note) => appearance(n).mark;
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
@@ -209,7 +260,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, false, note => {
     const mark = marks({ ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) });
     return `${mark ? `${mark} ` : ''}${note.name}`;
-  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), () => {
+  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), headingAppearance, () => {
+    const mark = linkMark(config().get<string>('headingMark', '#'));
+    return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('headingMarkColor', '#808080') || undefined };
+  }, () => {
     const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
   }, applyNoteEdit);
@@ -258,7 +312,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     });
     tagDropQueue = operation;
     await operation;
-  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()));
+  }, true, undefined, note => tagAppearance(note.id, config().get<TagStyles>('tagStyles', {}), config().get<string>('defaultTagMark', '$(circle-filled-compact)'), hierarchy()), undefined);
   async function tagRows(): Promise<Note[]> {
     const rows: Note[] = [];
     async function visit(nodes: Iterable<TagNode>, parent: string): Promise<void> {
@@ -354,15 +408,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   function refresh() { refreshQueue = refreshQueue.catch(() => {}).then(scan); return refreshQueue; }
   function schedule() { clearTimeout(timer); timer = setTimeout(guard(refresh), 180); }
   function decorate() {
-    for (const decoration of decorations) decoration.dispose();
-    decorations = [];
     const styles = config().get<TagStyles>('tagStyles', {});
     const linkColor = markdownLinkColor(
       vscode.workspace.getConfiguration('editor').get('tokenColorCustomizations'),
       vscode.workspace.getConfiguration('workbench').get<string>('colorTheme', '')
     ) ?? new vscode.ThemeColor('textLink.foreground');
-    for (const editor of vscode.window.visibleTextEditors) {
-      if (!notes.some(n => file(n.id).toString() === editor.document.uri.toString())) continue;
+    const visibleEditors = vscode.window.visibleTextEditors.filter(editor => notes.some(n => file(n.id).toString() === editor.document.uri.toString()));
+    const rangesByEditor = new Map<vscode.TextEditor, Map<vscode.TextEditorDecorationType, vscode.Range[]>>();
+    const getDecoration = (key: string, options: vscode.DecorationRenderOptions): vscode.TextEditorDecorationType => {
+      let decoration = decorationTypes.get(key);
+      if (!decoration) {
+        decoration = vscode.window.createTextEditorDecorationType(options);
+        decorationTypes.set(key, decoration);
+      }
+      return decoration;
+    };
+    const addRanges = (editor: vscode.TextEditor, decoration: vscode.TextEditorDecorationType, ranges: vscode.Range[]): void => {
+      const byDecoration = rangesByEditor.get(editor) ?? new Map<vscode.TextEditorDecorationType, vscode.Range[]>();
+      byDecoration.set(decoration, [...(byDecoration.get(decoration) ?? []), ...ranges]);
+      rangesByEditor.set(editor, byDecoration);
+    };
+    const colorKey = (color: string | vscode.ThemeColor): string => typeof color === 'string' ? color : `theme:${color.toString()}`;
+    for (const editor of visibleEditors) {
       const groups = new Map<string, { color: string; backgroundColor: string; ranges: vscode.Range[] }>();
       for (const tag of parseTags(editor.document.getText())) {
         const style = styleFor(tag.tag, styles);
@@ -373,8 +440,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         groups.get(key)!.ranges.push(new vscode.Range(editor.document.positionAt(tag.start), editor.document.positionAt(tag.end)));
       }
       for (const { color, backgroundColor, ranges } of groups.values()) {
-        const decoration = vscode.window.createTextEditorDecorationType({ color, backgroundColor: backgroundColor || undefined });
-        decorations.push(decoration); editor.setDecorations(decoration, ranges);
+        const decoration = getDecoration(`tag:${JSON.stringify([color, backgroundColor])}`, { color, backgroundColor: backgroundColor || undefined });
+        addRanges(editor, decoration, ranges);
       }
       const hidden: vscode.Range[] = [];
       const note = notes.find(item => file(item.id).toString() === editor.document.uri.toString());
@@ -391,23 +458,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (link.start < link.displayStart) hidden.push(new vscode.Range(range.start, editor.document.positionAt(link.displayStart)));
         if (link.displayEnd < link.end) hidden.push(new vscode.Range(editor.document.positionAt(link.displayEnd), range.end));
       }
-      for (const { mark, color, ranges } of linkGroups.values()) {
+      for (const [group, { mark, color, ranges }] of linkGroups) {
         const before: vscode.ThemableDecorationAttachmentRenderOptions | undefined = mark.icon
           ? {
             contentText: '\u00a0', color, width: '1em', height: '1em', margin: '0 0.25em 0 0',
             textDecoration: `none; display:inline-block; vertical-align:-0.35em; background-color:currentColor; mask:url("${linkIconUri(mark.icon)}") center / contain no-repeat`
           }
           : mark.text ? { contentText: mark.text, color, margin: '0 0.25em 0 0' } : undefined;
-        const decoration = vscode.window.createTextEditorDecorationType({
-          color, before
-        });
-        decorations.push(decoration); editor.setDecorations(decoration, ranges);
+        const decoration = getDecoration(`link:${JSON.stringify([group, colorKey(color), mark])}`, { color, before });
+        addRanges(editor, decoration, ranges);
       }
-      if (hidden.length) {
-        const decoration = vscode.window.createTextEditorDecorationType({ textDecoration: 'none; display: none' });
-        decorations.push(decoration); editor.setDecorations(decoration, hidden);
-      }
+      if (hidden.length) addRanges(editor, getDecoration('hidden', { textDecoration: 'none; display: none' }), hidden);
     }
+    const usedDecorations = new Set([...rangesByEditor.values()].flatMap(ranges => [...ranges.keys()]));
+    for (const [key, decoration] of decorationTypes) {
+      if (usedDecorations.has(decoration)) continue;
+      decoration.dispose();
+      decorationTypes.delete(key);
+    }
+    const editors = new Set([...decoratedEditors, ...visibleEditors]);
+    for (const editor of editors) {
+      const ranges = rangesByEditor.get(editor);
+      for (const decoration of usedDecorations) editor.setDecorations(decoration, ranges?.get(decoration) ?? []);
+    }
+    decoratedEditors = new Set(visibleEditors);
   }
   async function open(id: string, offset?: number, preserveFocus = false) {
     if (!notes.some(n => n.id === id)) return;
@@ -624,6 +698,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const subset = activeQuery
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
       : filterTree(tagNotes, tag, hierarchy());
+    const isDateLevel = (value: string): boolean => /^\d{4}(?:\/\d{2}){0,2}$/.test(value);
+    interface DateOccurrence { date: string; time?: number; lineStart: number }
+    const dateOccurrences = (note: Note): DateOccurrence[] => {
+      if (!isDateLevel(tag)) return [];
+      const occurrences: DateOccurrence[] = [];
+      const seenLines = new Set<number>();
+      for (const line of matchingLines(note.text, tag, note.tags, hierarchy())) {
+        if (seenLines.has(line.start)) continue;
+        seenLines.add(line.start);
+        const newline = note.text.indexOf('\n', line.start);
+        const end = newline < 0 ? note.text.length : newline;
+        const lineTags = note.tags.filter(item => item.start >= line.start && item.start < end);
+        const dates = lineTags.filter(item => /^\d{4}\/\d{2}\/\d{2}$/.test(item.tag));
+        if (dates.length !== 1 || (dates[0].tag !== tag && !dates[0].tag.startsWith(`${tag}/`))) continue;
+        let time: number | undefined;
+        for (const item of lineTags) {
+          const start = timeTagStartMinutes(item.tag);
+          if (start !== undefined && (time === undefined || start < time)) time = start;
+        }
+        occurrences.push({ date: dates[0].tag, time, lineStart: line.start });
+      }
+      return occurrences;
+    };
+    const dateSortMode = currentDateTagSort();
+    const dateSort = !activeQuery && isDateLevel(tag) && dateSortMode === 'time';
+    const orderedSubset = subset;
     const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
     const title = activeQuery ? `Search: ${activeQuery}` : tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`;
     const count = activeQuery ? hits.length : tagNotes.filter(isMatch).length;
@@ -683,24 +783,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       values.reduce<number | undefined>((total, value) => value === undefined ? total : (total ?? 0) + value, undefined);
     const headingLines = (heading: HeadingMatch): ContentMatch[] =>
       [...heading.lines, ...heading.children.flatMap(headingLines)];
-    const headingMinutes = (id: string, heading: HeadingMatch): number | undefined => {
+    const headingMinutes = (id: string, heading: HeadingMatch, contentTag = tag): number | undefined => {
       const note = notes.find(note => note.id === id);
-      return activeQuery || !note ? undefined : minutesForDate(note.text, headingLines(heading), tag, note.tags);
+      return activeQuery || !note ? undefined : minutesForDate(note.text, headingLines(heading), contentTag, note.tags);
     };
     const ownMinutes = new Map(subset.map(note => [note.id, activeQuery ? undefined
       : minutesForDate(note.text, matchingLines(note.text, tag, note.tags, hierarchy()), tag, note.tags)]));
     const noteMinutes = (id: string): number | undefined =>
       sumMinutes(subset.filter(note => within(note.id, id)).map(note => ownMinutes.get(note.id)));
-    const headingBranch = (id: string, headings: HeadingMatch[]): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children)}</li>`).join('')}</ul>` : '';
-    const noteContent = (note: Note): string => {
+    const headingBranch = (id: string, headings: HeadingMatch[], contentTag = tag): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading, contentTag))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children, contentTag)}</li>`).join('')}</ul>` : '';
+    const noteContent = (note: Note, contentTag = tag): string => {
       if (activeQuery) return contentBranch(note.id, hitMap.get(note.id)?.lines ?? []);
-      const headings = matchingHeadings(note.text, tag, note.tags, hierarchy());
+      const headings = matchingHeadings(note.text, contentTag, note.tags, hierarchy());
       const assigned = new Set<number>();
       const collect = (nodes: HeadingMatch[]): void => {
         for (const node of nodes) { node.lines.forEach(line => assigned.add(line.start)); collect(node.children); }
       };
       collect(headings);
-      const preamble = matchingLines(note.text, tag, note.tags, hierarchy()).filter(line => !assigned.has(line.start));
+      const preamble = matchingLines(note.text, contentTag, note.tags, hierarchy()).filter(line => !assigned.has(line.start));
       // The initial H1 often repeats the note name created by add(). Render its
       // contents directly under the note instead of adding another title row.
       const first = headings[0];
@@ -710,10 +810,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (initialTitle) {
         return contentBranch(note.id, preamble)
           + contentBranch(note.id, first.lines.filter(line => line.start !== first.start))
-          + headingBranch(note.id, first.children)
-          + headingBranch(note.id, headings.slice(1));
+          + headingBranch(note.id, first.children, contentTag)
+          + headingBranch(note.id, headings.slice(1), contentTag);
       }
-      return contentBranch(note.id, preamble) + headingBranch(note.id, headings);
+      return contentBranch(note.id, preamble) + headingBranch(note.id, headings, contentTag);
     };
     const noteTitle = (note: Note): string => {
       const title = parseHeadings(note.text).find(heading => heading.level === 1);
@@ -727,15 +827,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const index = iconColors.push(safeColor(color || 'inherit', 'inherit')) - 1;
       return `<span aria-hidden="true" class="codicon codicon-${icon[1]} note-icon-${index}"></span>`;
     };
-    const branch = (parent: string): string => `<ul>${subset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
-    const body = subset.length ? branch('') : '<p>No matching notes.</p>';
+    const timelineMode = dateSort;
+    const timelineEvents = new Map<string, { note: Note; occurrence: DateOccurrence }[]>();
+    if (timelineMode) {
+      for (const note of tagNotes) for (const occurrence of dateOccurrences(note)) {
+        const group = timelineEvents.get(occurrence.date) ?? [];
+        group.push({ note, occurrence });
+        timelineEvents.set(occurrence.date, group);
+      }
+    }
+    const timelineNoteMinutes = (note: Note, date: string): number | undefined =>
+      minutesForDate(note.text, matchingLines(note.text, date, note.tags, hierarchy()), date, note.tags);
+    const timelineBody = timelineMode ? [...timelineEvents.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, events]) => {
+      const ids = new Set(events.map(event => event.note.id));
+      const groupNotes = tagNotes.filter(note => ids.has(note.id) || [...ids].some(id => within(id, note.id)));
+      const groupMinutes = new Map(groupNotes.map(note => [note.id, timelineNoteMinutes(note, date)]));
+      const groupNoteMinutes = (id: string): number | undefined =>
+        sumMinutes(groupNotes.filter(note => within(note.id, id)).map(note => groupMinutes.get(note.id)));
+      const rows = events.sort((a, b) => (a.occurrence.time ?? Infinity) - (b.occurrence.time ?? Infinity)
+        || notes.indexOf(a.note) - notes.indexOf(b.note) || a.occurrence.lineStart - b.occurrence.lineStart).map(({ note, occurrence }) => {
+        const path = groupNotes.filter(parent => within(note.id, parent.id))
+          .sort((a, b) => a.id.split('/').length - b.id.split('/').length)
+          .map(parent => `<button data-id="${h(parent.id)}" class="${parent.id === note.id ? 'match' : 'ancestor'}">${markHtml(parent)} ${noteTitle(parent)}</button>${timeLabel(groupNoteMinutes(parent.id))}`);
+        const headings = matchingHeadings(note.text, date, note.tags, hierarchy());
+        const appendHeadingPath = (nodes: HeadingMatch[]): boolean => {
+          for (const heading of nodes) {
+            if (!headingLines(heading).some(line => line.start === occurrence.lineStart)) continue;
+            const initialTitle = heading === headings[0] && heading.title === note.name
+              && note.text.slice(0, heading.start).trim() === ''
+              && /^ {0,3}#[\t ]/.test(note.text.slice(heading.start));
+            if (!initialTitle) path.push(`<button data-id="${h(note.id)}" data-offset="${heading.start}" class="ancestor">${fragment(note.id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(note.id, heading, date))}`);
+            appendHeadingPath(heading.children);
+            return true;
+          }
+          return false;
+        };
+        appendHeadingPath(headings);
+        const end = note.text.indexOf('\n', occurrence.lineStart);
+        const lineEnd = end < 0 ? note.text.length : end;
+        const raw = note.text.slice(occurrence.lineStart, lineEnd);
+        const listPrefix = /^\s*(?:[-+*]|\d+[.)])[\t ]+(?:\[[ xX]\][\t ]+)?/.exec(raw);
+        const contentStart = occurrence.lineStart + (listPrefix?.[0].length ?? 0);
+        const dateTimeTags = note.tags.filter(item => item.start >= contentStart && item.end <= lineEnd
+          && (item.tag === date || /^(?:\d{2}:\d{2}(?:-(?:\d{2}:\d{2})?)?|\d+[mh])$/.test(item.tag)));
+        const leading = [...dateTimeTags].sort((a, b) => Number(b.tag === date) - Number(a.tag === date) || a.start - b.start)
+          .map(item => fragment(note.id, occurrence.lineStart, note.text.slice(item.start, item.end)));
+        const remaining: string[] = [];
+        let cursor = contentStart;
+        for (const item of dateTimeTags.sort((a, b) => a.start - b.start)) {
+          const text = note.text.slice(cursor, item.start).trim();
+          if (text) remaining.push(fragment(note.id, occurrence.lineStart, text));
+          cursor = item.end;
+        }
+        const tail = note.text.slice(cursor, lineEnd).trim();
+        if (tail) remaining.push(fragment(note.id, occurrence.lineStart, tail));
+        return `<li class="timeline-row"><button data-id="${h(note.id)}" data-offset="${occurrence.lineStart}" class="content">${[...leading, ...remaining].join(' ')}</button> ${path.join(' / ')}</li>`;
+      }).join('');
+      return `<section class="date-group"><h2>${h(date)}</h2><ul>${rows}</ul></section>`;
+    }).join('') : '';
+    const branch = (parent: string): string => `<ul>${orderedSubset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
+    const body = timelineMode ? timelineBody || '<p>No matching notes.</p>' : subset.length ? branch('') : '<p>No matching notes.</p>';
     const titleHtml = activeQuery ? h(title) : tag === INCOMPLETE_TIME_TAG
       ? `<span class="${classFor(tag)}">${h(title)}</span>`
       : renderTagText(title, parseTags(title), classFor);
+    const sortLabels: Record<DateTagSortMode, string> = { note: 'Notes', time: 'Time' };
+    const sortControl = !activeQuery && isDateLevel(tag)
+      ? `<div class="sort-control"><button type="button" data-action="toggle-date-sort" data-sort-mode="${dateSortMode}">Sort: ${sortLabels[dateSortMode]}</button></div>`
+      : '';
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const nonce = crypto.randomBytes(16).toString('hex');
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
-    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}p{margin:0 0 8px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
+    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}h2{font-size:1.05em;margin:12px 0 4px;color:var(--vscode-descriptionForeground)}p{margin:0 0 8px}.sort-control{margin:0 0 8px;color:var(--vscode-descriptionForeground)}.date-group ul{margin-bottom:4px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${sortControl}${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const sort=e.target.closest('button[data-action="toggle-date-sort"]');if(sort){api.postMessage({type:'toggleDateTagSort'});return;}const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
   }
   function filter(tag: string, preserveFocus = false) {
     activeTag = tag;
@@ -758,13 +920,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       panel = vscode.window.createWebviewPanel('fnote.results', `fnote: ${title}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
       panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
       panel.webview.onDidReceiveMessage(guard((message: unknown) => {
-        if (typeof message !== 'object' || message === null || !('id' in message) || typeof message.id !== 'string') return;
+        if (typeof message !== 'object' || message === null) return;
+        if ('type' in message && message.type === 'toggleDateTagSort') {
+          const index = dateTagSortModes.indexOf(currentDateTagSort());
+          dateTagSortOverride = dateTagSortModes[(index + 1) % dateTagSortModes.length];
+          renderResults();
+          return;
+        }
+        if (!('id' in message) || typeof message.id !== 'string') return;
         const offset = 'offset' in message ? message.offset : undefined;
         if (offset !== undefined && (typeof offset !== 'number' || !Number.isSafeInteger(offset) || offset < 0)) return;
         return open(message.id, offset);
       }), null, context.subscriptions);
     }
-    panel.title = `fnote: ${title}`; renderResults(); panel.reveal(undefined, preserveFocus);
+      panel.title = `fnote: ${title}`; renderResults(); panel.reveal(undefined, preserveFocus);
   }
   const command = <Args extends unknown[], Result>(name: string, fn: (...args: Args) => Result) => context.subscriptions.push(vscode.commands.registerCommand(`fnote.${name}`, guard(fn)));
   command('closeAllNotes', async () => {
@@ -778,6 +947,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('expandTags', () => tags.expandAll());
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
+  command('toggleDateTagSort', () => {
+    const index = dateTagSortModes.indexOf(currentDateTagSort());
+    dateTagSortOverride = dateTagSortModes[(index + 1) % dateTagSortModes.length];
+    renderResults();
+  });
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return add(n?.id ?? ''); });
   command('addAttachment', (n?: Note) => addAttachment(selected(n)));
@@ -839,13 +1013,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     watcher.onDidCreate(schedule), watcher.onDidDelete(schedule), watcher.onDidChange(schedule),
     vscode.workspace.onDidChangeTextDocument(e => { if (notes.some(n => file(n.id).toString() === e.document.uri.toString())) schedule(); }),
     vscode.workspace.onDidCloseTextDocument(schedule),
-    vscode.workspace.onDidChangeConfiguration(e => { if (e.affectsConfiguration('fnote') || e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) schedule(); }),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('fnote.dateTagSort')) dateTagSortOverride = undefined;
+      if (e.affectsConfiguration('fnote') || e.affectsConfiguration('editor.tokenColorCustomizations') || e.affectsConfiguration('workbench.colorTheme')) schedule();
+    }),
     vscode.window.onDidChangeVisibleTextEditors(decorate),
     vscode.window.onDidChangeTextEditorSelection(decorate),
     vscode.window.onDidChangeActiveTextEditor(guard(async (editor: vscode.TextEditor | undefined) => {
       const n = notes.find(n => file(n.id).toString() === editor?.document.uri.toString());
       if (n) await tree.reveal(n);
     })),
-    { dispose() { disposed = true; clearTimeout(timer); decorations.forEach(d => d.dispose()); panel?.dispose(); } });
+    { dispose() { disposed = true; clearTimeout(timer); decorationTypes.forEach(d => d.dispose()); panel?.dispose(); } });
   await refresh();
 }

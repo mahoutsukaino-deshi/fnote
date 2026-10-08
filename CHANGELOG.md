@@ -2,6 +2,15 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## v0.1.10
+
+- Prevent Markdown link syntax from briefly appearing while typing by reusing link decorations instead of disposing and recreating them.
+- Support Ctrl+Click navigation for Markdown links to headings in the current or another note, such as `[](#title)`.
+- Show the note's tag icon on Markdown heading rows in the note list, with a configurable heading mark and color.
+- Add optional Time mode for date-tag results with `fnote.dateTagSort`.
+- Add a Sort button to cycle date-tag result modes without changing settings.
+- Group date-tag results by date across notes in Time mode, allowing a note to appear in multiple date groups.
+
 ## v0.1.9
 
 - Keep focus in the tag list after selecting a tag so the Up and Down arrow keys can move between tags like they do in the note list.

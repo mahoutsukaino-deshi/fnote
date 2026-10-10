@@ -699,9 +699,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? notes.filter(note => hits.some(hit => within(hit.note.id, note.id)))
       : filterTree(tagNotes, tag, hierarchy());
     const isDateLevel = (value: string): boolean => /^\d{4}(?:\/\d{2}){0,2}$/.test(value);
-    interface DateOccurrence { date: string; time?: number; lineStart: number }
+    interface DateOccurrence { date?: string; time?: number; lineStart: number }
     const dateOccurrences = (note: Note): DateOccurrence[] => {
-      if (!isDateLevel(tag)) return [];
       const occurrences: DateOccurrence[] = [];
       const seenLines = new Set<number>();
       for (const line of matchingLines(note.text, tag, note.tags, hierarchy())) {
@@ -711,18 +710,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const end = newline < 0 ? note.text.length : newline;
         const lineTags = note.tags.filter(item => item.start >= line.start && item.start < end);
         const dates = lineTags.filter(item => /^\d{4}\/\d{2}\/\d{2}$/.test(item.tag));
-        if (dates.length !== 1 || (dates[0].tag !== tag && !dates[0].tag.startsWith(`${tag}/`))) continue;
+        const date = dates.length === 1 ? dates[0].tag : undefined;
+        if (isDateLevel(tag) && (!date || (date !== tag && !date.startsWith(`${tag}/`)))) continue;
         let time: number | undefined;
         for (const item of lineTags) {
           const start = timeTagStartMinutes(item.tag);
           if (start !== undefined && (time === undefined || start < time)) time = start;
         }
-        occurrences.push({ date: dates[0].tag, time, lineStart: line.start });
+        occurrences.push({ date, time, lineStart: line.start });
       }
       return occurrences;
     };
     const dateSortMode = currentDateTagSort();
-    const dateSort = !activeQuery && isDateLevel(tag) && dateSortMode === 'time';
+    const dateSort = !activeQuery && dateSortMode === 'time';
     const orderedSubset = subset;
     const isMatch = (note: Note) => activeQuery ? hitMap.has(note.id) : matchesTag(note, tag, hierarchy());
     const title = activeQuery ? `Search: ${activeQuery}` : tag === INCOMPLETE_TIME_TAG ? tag : `@${tag}`;
@@ -831,14 +831,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const timelineEvents = new Map<string, { note: Note; occurrence: DateOccurrence }[]>();
     if (timelineMode) {
       for (const note of tagNotes) for (const occurrence of dateOccurrences(note)) {
-        const group = timelineEvents.get(occurrence.date) ?? [];
+        const group = timelineEvents.get(occurrence.date ?? '') ?? [];
         group.push({ note, occurrence });
-        timelineEvents.set(occurrence.date, group);
+        timelineEvents.set(occurrence.date ?? '', group);
       }
     }
     const timelineNoteMinutes = (note: Note, date: string): number | undefined =>
       minutesForDate(note.text, matchingLines(note.text, date, note.tags, hierarchy()), date, note.tags);
-    const timelineBody = timelineMode ? [...timelineEvents.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, events]) => {
+    const timelineBody = timelineMode ? [...timelineEvents.entries()].sort(([a], [b]) => {
+      if (!a) return 1;
+      if (!b) return -1;
+      return a.localeCompare(b);
+    }).map(([date, events]) => {
       const ids = new Set(events.map(event => event.note.id));
       const groupNotes = tagNotes.filter(note => ids.has(note.id) || [...ids].some(id => within(id, note.id)));
       const groupMinutes = new Map(groupNotes.map(note => [note.id, timelineNoteMinutes(note, date)]));
@@ -849,7 +853,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const path = groupNotes.filter(parent => within(note.id, parent.id))
           .sort((a, b) => a.id.split('/').length - b.id.split('/').length)
           .map(parent => `<button data-id="${h(parent.id)}" class="${parent.id === note.id ? 'match' : 'ancestor'}">${markHtml(parent)} ${noteTitle(parent)}</button>${timeLabel(groupNoteMinutes(parent.id))}`);
-        const headings = matchingHeadings(note.text, date, note.tags, hierarchy());
+        const contentTag = date && isDateLevel(tag) ? date : tag;
+        const headings = matchingHeadings(note.text, contentTag, note.tags, hierarchy());
         const appendHeadingPath = (nodes: HeadingMatch[]): boolean => {
           for (const heading of nodes) {
             if (!headingLines(heading).some(line => line.start === occurrence.lineStart)) continue;
@@ -883,7 +888,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (tail) remaining.push(fragment(note.id, occurrence.lineStart, tail));
         return `<li class="timeline-row"><button data-id="${h(note.id)}" data-offset="${occurrence.lineStart}" class="content">${[...leading, ...remaining].join(' ')}</button> ${path.join(' / ')}</li>`;
       }).join('');
-      return `<section class="date-group"><h2>${h(date)}</h2><ul>${rows}</ul></section>`;
+      return `<section class="date-group"><h2>${h(date || 'No date')}</h2><ul>${rows}</ul></section>`;
     }).join('') : '';
     const branch = (parent: string): string => `<ul>${orderedSubset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
     const body = timelineMode ? timelineBody || '<p>No matching notes.</p>' : subset.length ? branch('') : '<p>No matching notes.</p>';
@@ -891,7 +896,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? `<span class="${classFor(tag)}">${h(title)}</span>`
       : renderTagText(title, parseTags(title), classFor);
     const sortLabels: Record<DateTagSortMode, string> = { note: 'Notes', time: 'Time' };
-    const sortControl = !activeQuery && isDateLevel(tag)
+    const sortControl = !activeQuery
       ? `<div class="sort-control"><button type="button" data-action="toggle-date-sort" data-sort-mode="${dateSortMode}">Sort: ${sortLabels[dateSortMode]}</button></div>`
       : '';
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');

@@ -10,6 +10,7 @@
 - Add optional Time mode for date-tag results with `fnote.dateTagSort`.
 - Add a Sort button to cycle date-tag result modes without changing settings.
 - Group date-tag results by date across notes in Time mode, allowing a note to appear in multiple date groups.
+- Enable the same date-ordered Time mode for regular tag results, placing undated lines in a final **No date** group.
 
 ## v0.1.9
 

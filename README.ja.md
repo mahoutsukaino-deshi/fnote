@@ -82,7 +82,7 @@ fnoteは、VS Codeでメモや作業記録を管理する拡張機能です。�
 
 入力途中の `@10:00` や `@10:00-` は **Incomplete time tags** にまとめるので、記入漏れを見つけて続きを入力できます。未完了の時刻は合計に含めません。
 
-`fnote.dateTagSort` を `"time"` にすると、日付タグの結果を日付ごとにまとめ、ノートをまたいで記録行を時刻順に表示します。各行の後ろに、ノートとMarkdown見出しの階層を合計時間付きで ` / ` 区切りで表示します。記録行をクリックすると元の行に移動できます。同じ行に複数の時刻がある場合は最も早い時刻を使い、時刻がない行はその日付の末尾に表示します。日付タグの結果にある **Sort** ボタンでNotesとTimeを動的に切り替えられ、`fnote.dateTagSort` は初期モードを指定します。既定値の `"note"` はノート一覧の順番を維持します。
+`fnote.dateTagSort` を `"time"` にすると、タグ検索結果を日付ごとにまとめ、ノートをまたいで記録行を時刻順に表示します。日付タグの年・月を選んだときと同じ表示で、通常のタグでも同じ行に日付があれば日付順になります。各行の後ろに、ノートとMarkdown見出しの階層を合計時間付きで ` / ` 区切りで表示します。記録行をクリックすると元の行に移動できます。同じ行に複数の時刻がある場合は最も早い時刻を使い、時刻がない行はその日付の末尾、日付がない行は最後の **No date** に表示します。タグ検索結果にある **Sort** ボタンでNotesとTimeを動的に切り替えられ、`fnote.dateTagSort` は初期モードを指定します。既定値の `"note"` はノート一覧の順番を維持します。
 
 日付別の記録行は日付・時刻を先頭に揃え、`@TODO` など他のタグや本文をその後ろに表示します。行頭のMarkdownリスト記号は表示しません。
 
@@ -140,7 +140,7 @@ VS Codeの設定画面で **`@ext:maoren.fnote`** を検索すると、fnoteの�
 | `fnote.defaultTagMark`                           | タグの既定アイコン（`$(circle-filled-compact)`）      |
 | `fnote.tagColor` / `fnote.tagBackgroundColor`    | タグの既定文字色・背景色                              |
 | `fnote.headingMark` / `fnote.headingMarkColor`   | ノート一覧のMarkdown見出しに付ける印と色（`#`、`#808080`） |
-| `fnote.dateTagSort`                              | 日付タグ結果の初期順番（`note`、`time`）              |
+| `fnote.dateTagSort`                              | タグ結果の初期順番（`note`、`time`）                  |
 | `fnote.linkMark`                                 | リンクのアイコン（`$(link-external)`）                |
 | `fnote.attachmentMark` / `fnote.attachmentColor` | 添付のアイコン（`$(attach)`）と色                     |
 | `fnote.archiveMark` / `fnote.archiveColor`       | アーカイブのアイコン（`$(archive)`）と色（`#808080`） |

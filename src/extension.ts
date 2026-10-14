@@ -239,7 +239,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const result = noteAppearance(tags, config().get<TagStyles>('tagStyles', {}), '', config().get<string>('defaultTagMark', '$(circle-filled-compact)'), config().get<TagHierarchy>('tagHierarchy', {}));
     return result.mark ? result : undefined;
   };
-  const marks = (n: Note) => appearance(n).mark;
+  const tagsInSubtree = (note: Note) => notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags);
+  const noteAppearanceInSubtree = (note: Note) => appearance({ ...note, tags: tagsInSubtree(note) });
+  const marks = (n: Note) => noteAppearanceInSubtree(n).mark;
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
     onDidChangeTreeData: events.event,
@@ -258,9 +260,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dropQueue = operation;
     return operation;
   }, false, note => {
-    const mark = marks({ ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) });
+    const mark = marks(note);
     return `${mark ? `${mark} ` : ''}${note.name}`;
-  }, (note, collapsed) => appearance(collapsed ? { ...note, tags: notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags) } : note), headingAppearance, () => {
+  }, note => noteAppearanceInSubtree(note), headingAppearance, () => {
     const mark = linkMark(config().get<string>('headingMark', '#'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('headingMarkColor', '#808080') || undefined };
   }, () => {

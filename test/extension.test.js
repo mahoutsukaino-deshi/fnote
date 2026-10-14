@@ -631,7 +631,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await run("archive", child);
     assert.equal(tagRows.some((row) => row.id === "TODO"), true);
     const outlineText =
-      "# 音楽\r\n## 節 🎵 @LOW\r\n#### 小節 `code` ### @HIGH\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾 @LOW";
+      "# 音楽\r\n## 節 🎵 @HIGH\r\n#### 小節 `code` ### @LOW\r\n```md\r\n## 非表示\r\n```\r\n## 節 🎵\r\n# 別タイトル\r\n###### 末尾 @LOW";
     await fs.writeFile(path.join(temp, ".fnote/音楽/資料.txt"), "attachment");
     await fs.mkdir(path.join(temp, ".fnote/音楽/assets"), { recursive: true });
     await fs.writeFile(path.join(temp, ".fnote/音楽/assets/preview.png"), "image");
@@ -702,15 +702,15 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       }]]), { isCancellationRequested: true });
     assert.equal(cancelled, undefined);
     const outline = noteRows.filter((row) => row.noteId === "音楽");
-    assert.deepEqual(outline[0].appearance, { mark: "$(check)", color: "#654321" });
+    assert.deepEqual(outline[0].appearance, { mark: "$(flag)", color: "#123456" });
     assert.deepEqual(outline[0].collapsedAppearance, { mark: "$(flag)", color: "#123456" });
-    assert.deepEqual(outline[1].appearance, { mark: "$(flag)", color: "#123456" });
+    assert.deepEqual(outline[1].appearance, { mark: "$(check)", color: "#654321" });
     assert.equal(outline[2].appearance, undefined);
     assert.deepEqual(outline[3].appearance, { mark: "$(check)", color: "#654321" });
     assert.deepEqual(outline[0].outlineMark, { mark: "#", color: "#808080" });
     assert.deepEqual(
       outline.map((row) => row.label),
-      ["節 🎵 @LOW", "小節 `code` ### @HIGH", "節 🎵", "末尾 @LOW"],
+      ["節 🎵 @HIGH", "小節 `code` ### @LOW", "節 🎵", "末尾 @LOW"],
     );
     assert.deepEqual(
       outline.map((row) => row.parent),
@@ -779,7 +779,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     await run("refresh");
     assert.ok(noteRows.every((row) => !row.noteId));
-    assert.equal(noteRows.find((row) => row.id === "音楽").label, "🟢 音楽");
+    assert.equal(noteRows.find((row) => row.id === "音楽").label, "🔴 音楽");
     assert.equal(
       noteRows.find((row) => row.id === "音楽").collapsedLabel,
       "🔴 音楽",
@@ -816,11 +816,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     assert.equal(
       noteRows.find((row) => row.id === "音楽").appearance.mark,
-      "$(circle-filled-compact)",
+      "$(check)",
     );
     assert.match(
       noteRows.find((row) => row.id === "音楽").appearance.color,
-      /^hsl\(/,
+      /^#12AB34$/,
     );
     await run("filter", "TODO");
     assert.match(html, /class="codicon codicon-check note-icon-\d+"/);

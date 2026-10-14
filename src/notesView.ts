@@ -80,9 +80,12 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
         const subtreeEnd = headings.slice(index + 1).find(next => next.level <= heading.level)?.start ?? note.text.length;
         const descendantTags = note.tags.filter(tag => tag.start >= (nextHeading?.start ?? subtreeEnd) && tag.start < subtreeEnd);
         const ownAppearance = this.headingAppearance?.(ownTags);
-        const descendantAppearance = this.headingAppearance?.(descendantTags);
+        // A collapsed heading represents its complete subtree. Compare the
+        // heading's own tags and descendant tags together so a lower-priority
+        // descendant cannot replace a higher-priority tag on the heading.
+        const collapsedAppearance = this.headingAppearance?.([...ownTags, ...descendantTags]);
         rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start,
-          appearance: ownAppearance, collapsedAppearance: descendantAppearance ?? ownAppearance, outlineMark: this.outlineMark?.() });
+          appearance: ownAppearance, collapsedAppearance, outlineMark: this.outlineMark?.() });
         stack.push({ level: heading.level, id });
       }
       return rows;

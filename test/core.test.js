@@ -250,7 +250,7 @@ test("ノートの印は本文順ではなく設定順で1つだけ選ぶ", () =
   );
   assert.equal(
     noteMark(tags, { TODO: { color: "#fff" }, ロック: { mark: "🟡" } }, "🗒️"),
-    "🟡",
+    "🏷️",
   );
   assert.equal(noteMark([], {}, "🗒️"), "🗒️");
   assert.equal(noteMark(tags, {}, "🗒️"), "🏷️");
@@ -297,8 +297,47 @@ test("重複定義は印と色の両方で先頭を優先する", () => {
     { tag: "TODO", mark: "🔴" },
     { tag: "FIX", mark: "🐞" },
   ];
-  assert.equal(noteMark(parseTags("@TODO @FIX"), styles, ""), "🐞");
+  assert.equal(noteMark(parseTags("@TODO @FIX"), styles, ""), "🏷️");
   assert.deepEqual(styleFor("TODO", styles), styles[0]);
+});
+
+test("アイコン未指定の高優先度タグも既定アイコンと自身の色で選ぶ", () => {
+  const { noteAppearance } = require("../dist/core");
+  for (const mark of [undefined, "", "   "]) {
+    const entries = [
+      { tag: "HIGH", color: "#F33", mark },
+      { tag: "TODO", color: "#f87171", mark },
+      { tag: "WAIT", mark: "$(clockface)", color: "#fbbf24" },
+    ];
+    for (const styles of [entries, Object.fromEntries(entries.map(({ tag, ...style }) => [tag, style]))]) {
+      for (const text of ["@TODO @WAIT", "@WAIT @TODO", "@WAIT @TODO/child"]) {
+        assert.deepEqual(noteAppearance(parseTags(text), styles, "📝"), {
+          mark: "$(circle-filled-compact)", color: "#f87171",
+        });
+      }
+      assert.deepEqual(noteAppearance(parseTags("@WAIT @TODO @HIGH"), styles, "📝", "◆"), {
+        mark: "◆", color: "#F33",
+      });
+      assert.deepEqual(noteAppearance(parseTags("@TODO @WAIT"), styles, "📝", ""), {
+        mark: "", color: "#f87171",
+      });
+    }
+  }
+});
+
+test("タグ優先度は最寄りの定義で比較し、アイコンの親継承と除外を維持する", () => {
+  const { noteAppearance, tagAppearance } = require("../dist/core");
+  const styles = [
+    { tag: "TODO", color: "#f87171" },
+    { tag: "WAIT", mark: "$(clockface)", color: "#fbbf24" },
+    { tag: "状態", mark: "$(flag)", color: "#123456" },
+  ];
+  const hierarchy = { 状態: ["TODO"] };
+  assert.deepEqual(noteAppearance(parseTags("@WAIT @TODO"), styles, "", undefined, hierarchy),
+    tagAppearance("TODO", styles, undefined, hierarchy));
+  assert.equal(noteAppearance(parseTags("@TODO @WAIT"), [
+    { ...styles[0], excludeFromNoteMark: true }, ...styles.slice(1),
+  ], "").mark, "$(clockface)");
 });
 
 test("ノート検索は名前・本文を部分一致で探し、該当行の位置を保持する", () => {
@@ -705,7 +744,7 @@ test("Codiconsの既定アイコンとタグ名から生成する1024色のHSL�
   );
 });
 
-test("階層タグは親のアイコンと色を継承し、子のアイコン指定だけを優先する", () => {
+test("階層タグは親のアイコンを継承し、子の色指定を優先する", () => {
   const { tagAppearance, noteAppearance } = require("../dist/core");
   const hierarchy = { 車: ["toyota"], toyota: ["rav4"] };
   const styles = [
@@ -713,18 +752,19 @@ test("階層タグは親のアイコンと色を継承し、子のアイコン�
     { tag: "toyota", color: "#ffffff" },
   ];
   const parent = tagAppearance("車", styles, undefined, hierarchy);
+  const child = { mark: parent.mark, color: "#ffffff" };
   assert.deepEqual(
     tagAppearance("toyota", styles, undefined, hierarchy),
-    parent,
+    child,
   );
-  assert.deepEqual(tagAppearance("rav4", styles, undefined, hierarchy), parent);
+  assert.deepEqual(tagAppearance("rav4", styles, undefined, hierarchy), child);
   assert.deepEqual(
     tagAppearance("rav4/詳細", styles, undefined, hierarchy),
-    parent,
+    child,
   );
   assert.deepEqual(
     noteAppearance(parseTags("@rav4"), styles, "", undefined, hierarchy),
-    parent,
+    child,
   );
   assert.deepEqual(tagAppearance("車/分類/子", styles), parent);
   const override = [
@@ -753,6 +793,46 @@ test("階層タグは親のアイコンと色を継承し、子のアイコン�
     ).mark,
     "🗒️",
   );
+});
+
+test("階層タグのアイコンと色はそれぞれ最寄りの指定を継承する", () => {
+  const { tagAppearance, noteAppearance, automaticTagColor } = require("../dist/core");
+  for (const [tag, hierarchy] of [["Group/Child", {}], ["Child", { Group: ["Child"] }]]) {
+    for (const parent of [undefined, { tag: "Group", color: "#abcdef" },
+      { tag: "Group", mark: "$(flag)", markColor: "#abcdef" }]) {
+      for (const mark of [undefined, "", "   "]) {
+        for (const colorStyle of [{ color: "#F33" }, { markColor: "#123456" },
+          { color: "#F33", markColor: "#123456" }]) {
+          const entries = [{ tag, mark, ...colorStyle }, ...(parent ? [parent] : []),
+            { tag: "LOW", mark: "$(clock)", color: "#fbbf24" }];
+          const expected = { mark: parent?.mark ?? "$(circle-filled-compact)",
+            color: colorStyle.markColor ?? colorStyle.color };
+          for (const styles of [entries, Object.fromEntries(entries.map(({ tag, ...style }) => [tag, style]))]) {
+            assert.deepEqual(tagAppearance(tag, styles, undefined, hierarchy), expected);
+            assert.deepEqual(tagAppearance(`${tag}/Detail`, styles, undefined, hierarchy), expected);
+            assert.deepEqual(noteAppearance(parseTags(`@LOW @${tag}`), styles, "", undefined, hierarchy), expected);
+          }
+        }
+      }
+    }
+    // With no child color, even a child icon override inherits the parent color.
+    assert.deepEqual(tagAppearance(tag, [
+      { tag, mark: "$(star)" }, { tag: "Group", color: "#abcdef" },
+    ], undefined, hierarchy), { mark: "$(star)", color: "#abcdef" });
+    assert.deepEqual(tagAppearance(tag, [{ tag, backgroundColor: "#abcdef" }], undefined, hierarchy),
+      { mark: "$(circle-filled-compact)", color: automaticTagColor("Group") });
+  }
+});
+
+test("日付タグもアイコンと色を独立して継承する", () => {
+  const { tagAppearance } = require("../dist/core");
+  const styles = [
+    { tag: "date", mark: "$(calendar)", markColor: "#123456" },
+    { tag: "2026/09", color: "#F33" },
+    { tag: "2027", mark: "$(star)" },
+  ];
+  assert.deepEqual(tagAppearance("2026/09/01", styles), { mark: "$(calendar)", color: "#F33" });
+  assert.deepEqual(tagAppearance("2027/01/01", styles), { mark: "$(star)", color: "#123456" });
 });
 
 test("date設定で年に依存せず年・月・日の日付タグに共通アイコンを使う", () => {

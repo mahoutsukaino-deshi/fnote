@@ -769,6 +769,31 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       await fs.readFile(path.join(temp, ".fnote/音楽/index.md"), "utf8"),
       "# 音楽\r\n## 子はそのまま\r\n本文",
     );
+    // Color-only tags must retain priority in notes, child notes and headings.
+    settings.set("tagStyles", [
+      { tag: "HIGH", color: "#F33" },
+      { tag: "TODO", color: "#f87171" },
+      { tag: "WAIT", mark: "$(clockface)", color: "#fbbf24" },
+    ]);
+    settings.set("defaultTagMark", "$(circle-filled-compact)");
+    for (const text of [
+      "# 音楽\n@WAIT @TODO",
+      "# 音楽\n## 親 @TODO\n### 子 @WAIT",
+      "# 音楽\n## 親 @WAIT\n### 子 @TODO",
+      "# 音楽\n@WAIT",
+    ]) {
+      await fs.writeFile(path.join(temp, ".fnote/音楽/index.md"), text);
+      await run("refresh");
+      const expected = { mark: "$(circle-filled-compact)", color: "#f87171" };
+      const row = noteRows.find(row => row.id === "音楽");
+      assert.deepEqual(row.appearance, expected);
+      assert.deepEqual(row.collapsedAppearance, expected);
+      assert.equal(row.label, "$(circle-filled-compact) 音楽");
+      assert.equal(row.collapsedLabel, row.label);
+      const heading = noteRows.find(row => row.noteId === "音楽");
+      if (heading) assert.deepEqual(heading.collapsedAppearance, expected);
+    }
+    settings.set("defaultTagMark", "🏷️");
     settings.set("tagStyles", [
       { tag: "TODO", mark: "🔴" },
       { tag: "DONE", mark: "🟢" },
@@ -839,14 +864,37 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     assert.equal(
       tagRows.find((row) => row.id === "TODO").appearance.color,
-      "#AB1234",
+      "#FFFFFF",
     );
     assert.equal(
       noteRows.find((row) => row.id === "音楽").collapsedAppearance.mark,
       "$(flag)",
     );
     assert.match(html, /class="codicon codicon-flag note-icon-\d+"/);
+    assert.deepEqual(noteRows.find(row => row.id === "音楽").appearance,
+      { mark: "$(flag)", color: "#FFFFFF" });
+    assert.match(html, /\.note-icon-\d+\{color:#FFFFFF\}/);
     settings.delete("tagHierarchy");
+
+    for (const style of [{ color: "#F33" }, { markColor: "#123456" }]) {
+      settings.set("tagStyles", [
+        { tag: "Group/Child", ...style },
+        { tag: "WAIT", mark: "$(clockface)", color: "#fbbf24" },
+      ]);
+      await fs.writeFile(path.join(temp, ".fnote/音楽/index.md"),
+        "# 音楽\n## 親 @WAIT\n### 子 @Group/Child");
+      await run("refresh");
+      const expected = { mark: "$(circle-filled-compact)", color: style.markColor ?? style.color };
+      const note = noteRows.find(row => row.id === "音楽");
+      assert.deepEqual(note.appearance, expected);
+      assert.deepEqual(note.collapsedAppearance, expected);
+      const headings = noteRows.filter(row => row.noteId === "音楽");
+      assert.deepEqual(headings[0].collapsedAppearance, expected);
+      assert.deepEqual(headings[1].appearance, expected);
+      assert.deepEqual(tagRows.find(row => row.id === "Group/Child").appearance, expected);
+      await run("filter", "Group/Child");
+      assert.ok(html.includes(`{color:${expected.color}}`));
+    }
     settings.set("defaultTagMark", "🏷️");
 
     settings.delete("tagStyles");

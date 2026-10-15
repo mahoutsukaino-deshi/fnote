@@ -325,7 +325,7 @@ export function automaticTagColor(tag: string): string {
   // 64 hues × 4 saturation levels × 4 lightness levels; no black/white.
   return `hsl(${(index % 64) * 360 / 64}, ${55 + (index >>> 6 & 3) * 8}%, ${42 + (index >>> 8 & 3) * 6}%)`;
 }
-// Icon inheritance is independent of text-color definitions on child tags.
+// Resolve the icon independently so child colors do not interrupt inheritance.
 function markSource(tag: string, definitions: Map<string, TagStyle>, parents: Map<string, string>): string {
   let root = tag;
   for (let key = tag; key; key = parents.get(key) ?? naturalTagParent(key)) {
@@ -336,9 +336,20 @@ function markSource(tag: string, definitions: Map<string, TagStyle>, parents: Ma
 }
 export function tagAppearance(tag: string, styles: TagStyles, defaultMark = '$(circle-filled-compact)', hierarchy: TagHierarchy = {}): { mark: string; color: string } {
   const definitions = new Map(styleEntries(styles).reverse());
-  const key = markSource(tag, definitions, hierarchyParents(hierarchy));
+  const parents = hierarchyParents(hierarchy);
+  const key = markSource(tag, definitions, parents);
   const style = definitions.get(key) ?? {};
-  return { mark: style.mark?.trim() || defaultMark, color: style.markColor || style.color || automaticTagColor(key) };
+  let color: string | undefined;
+  for (let source = tag; source; source = parents.get(source) ?? naturalTagParent(source)) {
+    const ancestor = definitions.get(source);
+    color = ancestor?.markColor || ancestor?.color;
+    if (color) break;
+  }
+  if (!color && isDateTagLevel(tag)) {
+    const date = definitions.get('date');
+    color = date?.markColor || date?.color;
+  }
+  return { mark: style.mark?.trim() || defaultMark, color: color || automaticTagColor(key) };
 }
 export function noteMark(tags: readonly TagMatch[], styles: TagStyles, untaggedMark: string, defaultTagMark = '🏷️', hierarchy: TagHierarchy = {}): string {
   return noteAppearance(tags, styles, untaggedMark, defaultTagMark, hierarchy).mark;
@@ -358,13 +369,19 @@ export function noteAppearance(tags: readonly TagMatch[], styles: TagStyles, unt
   };
   const eligible = regularTags.filter(tag => !excluded(tag.tag));
   if (eligible.length === 0) return { mark: untaggedMark };
-  const applicable = new Set(eligible.map(tag => markSource(tag.tag, definitions, parents)));
-  const visited = new Set<string>();
-  for (const [key, style] of entries) {
-    if (visited.has(key)) continue;
-    visited.add(key);
-    const mark = style.mark?.trim();
-    if (mark && applicable.has(key)) return { mark, color: style.markColor || style.color || automaticTagColor(key) };
+  // Priority belongs to the nearest style definition, even when its icon is
+  // inherited or uses defaultTagMark. Resolve the appearance after selection.
+  const applicable = new Map<string, string>();
+  for (const { tag } of eligible) {
+    for (let key = tag; key; key = parents.get(key) ?? naturalTagParent(key)) {
+      if (!definitions.has(key)) continue;
+      if (!applicable.has(key)) applicable.set(key, tag);
+      break;
+    }
+  }
+  for (const [key] of entries) {
+    const tag = applicable.get(key);
+    if (tag !== undefined) return tagAppearance(tag, styles, defaultTagMark, hierarchy);
   }
   const tag = eligible[0].tag;
   return tagAppearance(tag, styles, defaultTagMark, hierarchy);

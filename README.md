@@ -134,6 +134,10 @@ The available VS Code icons are listed in the [VS Code Codicons](https://microso
 
 Earlier entries have priority when choosing a note icon; date and time tags are excluded. Child tags inherit their parent’s icon unless overridden. Setting `fnote.tagStyles` replaces the default array, so include entries you want to keep. Appearance changes take effect without restarting.
 
+Entries with a missing or blank `mark` still participate in priority order. If the selected tag has no parent icon to inherit, it uses `fnote.defaultTagMark`.
+
+Icon shape and color are inherited independently. Color uses the child tag's `markColor`, then its `color`; if neither is set, it checks ancestors from nearest to farthest in the same order. If no color is set, it uses an automatically generated color.
+
 | Setting                                          | Purpose                                            |
 |--------------------------------------------------|----------------------------------------------------|
 | `fnote.untaggedNoteMark`                         | Icon for notes without an eligible tag (`$(note)`) |

@@ -11,3 +11,11 @@ test('link marks support bundled Codicons, text, emoji, empty values and unknown
   assert.doesNotMatch(svg, /undefined/);
   assert.notEqual(linkIconUri('globe'), linkIconUri('link-external'));
 });
+
+
+test('native favorite icons preserve configured colors and escape SVG attributes', () => {
+  const svg = color => Buffer.from(linkIconUri('book', color).split(',')[1], 'base64').toString();
+  assert.match(svg('#123456'), /fill="#123456"/);
+  assert.notEqual(linkIconUri('book', '#123456'), linkIconUri('book', '#abcdef'));
+  assert.match(svg('"<&'), /fill="&quot;&lt;&amp;"/);
+});

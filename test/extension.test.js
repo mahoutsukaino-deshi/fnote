@@ -17,6 +17,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   const disposable = () => ({ dispose() {} });
   const uri = (p, fragment) => ({
     fsPath: p,
+    path: p.split(path.sep).join('/'),
     fragment,
     toString: () => `file://${p}${fragment ? `#${fragment}` : ''}`,
     with: change => uri(p, change.fragment),
@@ -31,6 +32,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelReveals = [],
     receiveMessage,
     configurationChanged,
+    documentSaved,
     selectionChanged,
     shown,
     linkProvider,
@@ -42,7 +44,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   const attachmentSources = [];
   let closeResult = true;
   const settings = new Map([["defaultTagMark", "🏷️"]]);
+  const labelSettings = new Map([['patterns', { '**/page.tsx': '${dirname}/page' }], ['enabled', false]]);
+  const workspaceLabelSettings = new Map();
+  const labelUpdates = [];
   const api = {
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     languages: {
       registerDocumentLinkProvider(selector, provider) {
         linkProvider = provider;
@@ -92,27 +98,24 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       }
     },
     EventEmitter: class {
-      event = () => disposable();
-      fire() {}
+      listeners = new Set();
+      event = listener => { this.listeners.add(listener); return { dispose: () => this.listeners.delete(listener) }; };
+      fire(value) { for (const listener of this.listeners) listener(value); }
       dispose() {}
     },
     RelativePattern: class {},
     DataTransferItem: class {
-      constructor(value) {
-        this.value = value;
-      }
+      constructor(value) { this.value = value; }
+      async asString() { return String(this.value); }
     },
     WorkspaceEdit: class {
       ops = [];
       replace(u, range, value) {
         this.ops.push(async () => {
           const text = await fs.readFile(u.fsPath, "utf8");
-          await fs.writeFile(
-            u.fsPath,
-            text.slice(0, range.start.offset) +
-              value +
-              text.slice(range.end.offset),
-          );
+          const updated = text.slice(0, range.start.offset) + value + text.slice(range.end.offset);
+          await fs.writeFile(u.fsPath, updated);
+          documents.find(doc => doc.uri.toString() === u.toString())?.setText?.(updated);
         });
       }
       createFile(u, options = {}) {
@@ -123,7 +126,14 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         });
       }
       renameFile(a, b) {
-        this.ops.push(() => fs.rename(a.fsPath, b.fsPath));
+        this.ops.push(async () => {
+          await fs.rename(a.fsPath, b.fsPath);
+          for (const document of documents) {
+            if (document.uri.fsPath === a.fsPath || document.uri.fsPath.startsWith(a.fsPath + path.sep)) {
+              document.uri = uri(b.fsPath + document.uri.fsPath.slice(a.fsPath.length));
+            }
+          }
+        });
       }
       deleteFile(a) {
         this.ops.push(() => fs.rm(a.fsPath, { recursive: true }));
@@ -144,11 +154,18 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     workspace: {
       workspaceFolders: [{ uri: uri(temp) }],
       textDocuments: documents,
-      getConfiguration: () => ({
-        inspect: (key) => ({ globalValue: settings.get(key) }),
-        get: (key, fallback) =>
-          settings.has(key) ? settings.get(key) : fallback,
-      }),
+      getConfiguration: section => {
+        const values = section === 'workbench.editor.customLabels' ? labelSettings : settings;
+        return {
+          inspect: key => ({ globalValue: values.get(key), workspaceValue: section === 'workbench.editor.customLabels' ? workspaceLabelSettings.get(key) : undefined }),
+          get: (key, fallback) => section === 'workbench.editor.customLabels' && workspaceLabelSettings.has(key)
+            ? workspaceLabelSettings.get(key) : values.has(key) ? values.get(key) : fallback,
+          update: async (key, value, target) => {
+            labelUpdates.push({ key, value, target });
+            (target === api.ConfigurationTarget.Workspace ? workspaceLabelSettings : values).set(key, value);
+          },
+        };
+      },
       fs: {
         readDirectory: async (u) =>
           (
@@ -187,6 +204,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         onDidChange: disposable,
       }),
       onDidChangeTextDocument: disposable,
+      onDidSaveTextDocument: listener => { documentSaved = listener; return disposable(); },
       onDidCloseTextDocument: disposable,
       onDidChangeConfiguration: (listener) => {
         configurationChanged = listener;
@@ -285,6 +303,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   try {
     const { activate } = require("../dist/extension");
     await activate(context);
+    const noteTabPattern = `${temp}/.fnote/**/index.md`;
+    assert.deepEqual(labelSettings.get('patterns'), { '**/page.tsx': '${dirname}/page', [noteTabPattern]: '${dirname}' }, '保存先に限定したタブ名ルールを追加し、既存のルールを保持する');
+    assert.equal(labelSettings.get('enabled'), true);
     const linkText = "[[../旅行/]]\n[](../旅行/)\n[旅行](../%E6%97%85%E8%A1%8C/)";
     const linkDocument = {
       uri: uri(path.join(temp, ".fnote/日記/index.md")),
@@ -367,6 +388,17 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs.push("音楽");
     await run("add");
     const parent = provider.getChildren()[0];
+    const labelUpdatesBeforeOpen = labelUpdates.length;
+    await run('open', parent.id);
+    assert.equal(shown.doc.uri.toString(), uri(path.join(temp, '.fnote/音楽/index.md')).toString(), '通常のファイルURIを維持する');
+    assert.equal(labelUpdates.length, labelUpdatesBeforeOpen, '設定済みなら設定を書き直さない');
+    workspaceLabelSettings.set('patterns', { '**/route.ts': 'Route', [noteTabPattern]: '${filename}' });
+    workspaceLabelSettings.set('enabled', false);
+    await run('open', parent.id);
+    assert.deepEqual(workspaceLabelSettings.get('patterns'), { '**/route.ts': 'Route', [noteTabPattern]: '${dirname}' }, 'ワークスペースで上書きされている場合も、他のルールを保ってノート名を適用する');
+    assert.equal(workspaceLabelSettings.get('enabled'), true);
+    assert.equal(labelUpdates.at(-1).target, api.ConfigurationTarget.Workspace);
+    workspaceLabelSettings.clear();
     assert.equal(provider.getTreeItem(parent).label, "$(note) 音楽");
     settings.set("untaggedNoteMark", "📝");
     assert.equal(provider.getTreeItem(parent).label, "📝 音楽");
@@ -575,6 +607,122 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.doesNotMatch(sidebarHtml, /attachment-hint|Attach files: hold Shift and drop onto a note\./);
     await sidebarMessage({ type: "ready" });
+    const favoriteView = views.get('fnote.favorite');
+    const favoriteProvider = favoriteView.treeDataProvider;
+    const favoriteRows = () => favoriteProvider.getChildren().map(note => ({ id: note.id, label: favoriteProvider.getTreeItem(note).label }));
+    const nativeTransfer = id => {
+      const transfer = new Map();
+      favoriteView.dragAndDropController.handleDrag([{ id }], transfer);
+      return transfer;
+    };
+    const favoriteReorder = async (id, target) => {
+      await favoriteView.dragAndDropController.handleDrop(target === undefined ? undefined : { id: target }, nativeTransfer(id));
+    };
+    assert.deepEqual(favoriteView.dragAndDropController.dropMimeTypes, ['application/vnd.fnote.favorite']);
+    assert.equal(views.get('fnote.favorite').webviewProvider, undefined, 'favoriteはネイティブのドロップ先を使う');
+    assert.deepEqual(favoriteRows(), []);
+    await sidebarMessage({ type: 'command', command: 'addFavorite', id: child.id });
+    await run('addFavorite', parent);
+    await run('addFavorite', child);
+    assert.deepEqual(favoriteRows().map(row => row.id), [child.id, parent.id], '登録順で表示し、重複を防ぐ');
+    const rootStatusPath = path.join(temp, '.fnote/.status');
+    const favoriteStateKey = `favorite:file://${path.join(temp, '.fnote')}`;
+    const readRootStatus = async () => JSON.parse(await fs.readFile(rootStatusPath, 'utf8'));
+    const initialRootStatus = await readRootStatus();
+    assert.deepEqual(initialRootStatus.favorite, [child.id, parent.id], '.statusの配列順でお気に入りを保存する');
+    assert.equal(savedState.get(favoriteStateKey), undefined);
+    const notesBeforeFavoriteReorder = noteRows.map(row => ({ id: row.id, parent: row.parent }));
+    // Favorites can still be reordered within the native list.
+    const nativeDrag = nativeTransfer(parent.id);
+    await favoriteView.dragAndDropController.handleDrop(child, nativeDrag);
+    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
+    assert.deepEqual((await readRootStatus()).favorite, [parent.id, child.id]);
+
+    // Note-list drags cannot register favorites, even when dropped on an empty list.
+    const { setup } = require('../test-support/notesWebview');
+    for (const selected of [undefined, child.id]) for (const shiftKey of [false, true]) {
+      const source = setup();
+      source.message({ type: 'notes', rows: noteRows, selected });
+      const row = source.tree.children.find(row => row.dataset.id === parent.id);
+      const data = new Map();
+      row.onmousedown({ button: 0 });
+      row.ondragstart({ shiftKey, dataTransfer: { setData: (type, value) => data.set(type, value) } });
+      await run('removeFavorite', parent);
+      const beforeDrop = await readRootStatus();
+      await favoriteView.dragAndDropController.handleDrop(undefined,
+        new Map([...data].map(([type, value]) => [type, new api.DataTransferItem(value)])));
+      assert.deepEqual(await readRootStatus(), beforeDrop, 'ノート一覧からのドロップは登録しない');
+      source.documentListeners.get('dragend')();
+    }
+    await run('removeFavorite', child);
+    await favoriteView.dragAndDropController.handleDrop(undefined,
+      new Map([['application/vnd.fnote.note', new api.DataTransferItem(JSON.stringify({ id: parent.id }))]]));
+    assert.deepEqual(favoriteRows(), [], '空のfavoriteでも登録しない');
+    await run('addFavorite', parent);
+    await run('addFavorite', child);
+    let favoriteRefreshes = 0;
+    const favoriteRefreshListener = favoriteProvider.onDidChangeTreeData(() => favoriteRefreshes++);
+    await run('refresh');
+    assert.equal(favoriteRefreshes, 0, '無関係な再スキャンでドラッグ先の一覧を再構築しない');
+    favoriteRefreshListener.dispose();
+    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
+    await run('favoriteDown', parent);
+    assert.deepEqual(favoriteRows().map(row => row.id), [child.id, parent.id]);
+    await favoriteReorder(child.id);
+    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id], '空白へのドロップで末尾へ移動する');
+    for (const [id, target] of [[child.id, child.id], ['missing', child.id], [parent.id, 'missing']]) await favoriteReorder(id, target);
+    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['application/vnd.fnote.note', new api.DataTransferItem('invalid json')]]));
+    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['application/vnd.fnote.note', new api.DataTransferItem(JSON.stringify({ id: 123 }))]]));
+    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['text/plain', new api.DataTransferItem(child.id)]]));
+    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['text/uri-list', new api.DataTransferItem('file:///tmp/index.md')]]));
+    await sidebarMessage({ type: 'shortcutDrop', id: child.id });
+    await sidebarMessage({ type: 'shortcutDrop', uri: 'fnote-drag://old/favorite/old-id' });
+    assert.deepEqual((await readRootStatus()).favorite, [parent.id, child.id], '不正なドロップで順序や登録内容を変更しない');
+    assert.deepEqual((await readRootStatus()).order, initialRootStatus.order);
+    assert.deepEqual(noteRows.map(row => ({ id: row.id, parent: row.parent })), notesBeforeFavoriteReorder);
+    favoriteView.selection = [child];
+    await run('favoriteUp');
+    assert.deepEqual((await readRootStatus()).favorite, [child.id, parent.id]);
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...initialRootStatus, favorite: [parent.id, child.id] }));
+    await run('refresh');
+    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
+    for (const note of favoriteProvider.getChildren()) {
+      assert.deepEqual(favoriteProvider.getChildren(note), [], 'favoriteは階層を展開しない');
+      const item = favoriteProvider.getTreeItem(note);
+      assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None);
+      assert.equal(item.tooltip, note.id);
+      assert.equal(item.contextValue, 'favorite');
+      assert.equal(item.resourceUri, undefined, '外部へのドラッグ用URIを公開しない');
+      assert.deepEqual(item.command.arguments, [note.id, undefined, true]);
+    }
+    const previousTagStyles = settings.get('tagStyles');
+    settings.set('tagStyles', [{ tag: 'TODO', mark: '$(book)', markColor: '#123456' }]);
+    const nativeIcon = favoriteProvider.getTreeItem(child).iconPath.dark.toString();
+    assert.match(Buffer.from(nativeIcon.split(',')[1], 'base64').toString(), /fill="#123456"/);
+    if (previousTagStyles === undefined) settings.delete('tagStyles'); else settings.set('tagStyles', previousTagStyles);
+    await favoriteReorder('missing');
+    assert.equal(favoriteRows().length, 2);
+    favoriteView.selection = [child];
+    await run('removeFavorite');
+    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id]);
+    await run('removeFavorite', parent);
+    assert.deepEqual(favoriteRows(), []);
+    await run('addFavorite', child);
+    const beforeFavoriteRemoval = noteRows.map(row => row.id);
+    const destination = setup();
+    destination.message({ type: 'notes', rows: noteRows, selected: parent.id });
+    const nativeData = nativeTransfer(child.id);
+    await destination.tree.handlers.drop({ target: destination.tree, preventDefault() {}, stopPropagation() {},
+      dataTransfer: { types: [...nativeData.keys()], getData: type => nativeData.get(type)?.value ?? '' } });
+    assert.ok(!destination.sent.some(message => ['shortcutDrop', 'drop', 'attachmentDrop'].includes(message.type)));
+    assert.deepEqual((await readRootStatus()).favorite, [child.id], 'ノート一覧へドラッグしても解除しない');
+    await run('removeFavorite', child);
+    assert.deepEqual(favoriteRows(), []);
+    assert.deepEqual(noteRows.map(row => row.id), beforeFavoriteRemoval);
+    assert.ok(await fs.stat(path.join(temp, '.fnote', child.id, 'index.md')));
+    assert.deepEqual((await readRootStatus()).favorite, []);
+    assert.deepEqual((await readRootStatus()).order, initialRootStatus.order);
+
     await sidebarMessage({
       type: "expansionState",
       allCollapsed: false,
@@ -1341,8 +1489,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     picks.push({ id: child.id });
     await run("move", parent);
     assert.match(errors.pop(), /descendants/);
+    await run('addFavorite', child);
+    await run('addFavorite', parent);
     picks.push({ id: "" });
     await run("move", child);
+    assert.deepEqual(favoriteRows().map(row => row.id), ['曲', '音楽']);
+    assert.deepEqual((await readRootStatus()).favorite, ['曲', '音楽'], 'ノート移動と順序の保存後もお気に入りを保持する');
     assert.equal(provider.getChildren().length, 2);
     assert.match(
       await fs.readFile(path.join(temp, ".fnote/音楽/index.md"), "utf8"),
@@ -1363,6 +1515,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs.push("新しい曲");
     await run("rename", child);
     const renamed = provider.getChildren().find((n) => n.name === "新しい曲");
+    assert.deepEqual(favoriteRows().map(row => row.id), ['新しい曲', '音楽']);
+    assert.deepEqual((await readRootStatus()).favorite, ['新しい曲', '音楽']);
+    assert.match(favoriteRows()[0].label, /新しい曲/);
     assert.match(
       await fs.readFile(path.join(temp, ".fnote/新しい曲/index.md"), "utf8"),
       /@TODO/,
@@ -1372,8 +1527,108 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       /\[音楽\]\(\.\.\/音楽\/\)/,
     );
     await run("delete", renamed);
+    assert.deepEqual(favoriteRows().map(row => row.id), ['音楽']);
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽']);
     assert.equal(provider.getChildren().length, 1);
     assert.equal(errors.length, 0);
+    // Saving a changed first-line H1 renames the folder using the same relocation path.
+    const storage = path.join(temp, '.fnote');
+    const originalStatus = await fs.readFile(path.join(storage, '.status'), 'utf8');
+    const writeFixture = async (id, text) => {
+      await fs.mkdir(path.join(storage, id), { recursive: true });
+      await fs.writeFile(path.join(storage, id, 'index.md'), text);
+    };
+    await writeFixture('自動改名', '# 自動改名\r\n\r\n[資料](資料.txt)\r\n');
+    await writeFixture('自動改名/子', '# 子\n本文\n');
+    await fs.writeFile(path.join(storage, '自動改名/資料.txt'), 'attachment');
+    await writeFixture('参照', '# 表示名\n[親](../自動改名/)\n[[../自動改名/子/]]\n');
+    await run('refresh');
+    const source = provider.getChildren().find(note => note.id === '自動改名');
+    await run('addFavorite', source);
+    await run('addFavorite', provider.getChildren(source).find(note => note.id === '自動改名/子'));
+    const beforeRenameOrder = provider.getChildren().map(note => note.id);
+    const openModel = async id => {
+      const document = {
+        uri: uri(path.join(storage, id, 'index.md')),
+        text: await fs.readFile(path.join(storage, id, 'index.md'), 'utf8'),
+        getText() { return this.text; },
+        setText(text) { this.text = text; },
+        positionAt: offset => ({ offset }),
+      };
+      documents.push(document);
+      return document;
+    };
+    const saveModel = async document => {
+      await fs.writeFile(document.uri.fsPath, document.text);
+      await documentSaved(document);
+    };
+    const sourceDocument = await openModel('自動改名');
+    const childDocument = await openModel('自動改名/子');
+    const referenceDocument = await openModel('参照');
+    sourceDocument.text = sourceDocument.text.replace('# 自動改名', '# 改名後');
+    await run('refresh');
+    assert.ok(provider.getChildren().some(note => note.id === '自動改名'), '編集中はフォルダーを移動しない');
+    await assert.rejects(fs.stat(path.join(storage, '改名後')), { code: 'ENOENT' });
+    childDocument.text = '# 子の改名\n本文\n';
+    await fs.writeFile(sourceDocument.uri.fsPath, sourceDocument.text);
+    await fs.writeFile(childDocument.uri.fsPath, childDocument.text);
+    const parentSave = documentSaved(sourceDocument);
+    const childSave = documentSaved(childDocument);
+    // The child buffer may close or be replaced while VS Code moves its parent.
+    documents.splice(documents.indexOf(childDocument), 1);
+    await Promise.all([parentSave, childSave]);
+    childDocument.uri = uri(path.join(storage, '改名後/子の改名/index.md'));
+    documents.push(childDocument);
+    assert.equal(await fs.readFile(path.join(storage, '改名後/index.md'), 'utf8'), '# 改名後\r\n\r\n[資料](資料.txt)\r\n');
+    assert.equal(await fs.readFile(path.join(storage, '改名後/子の改名/index.md'), 'utf8'), '# 子の改名\n本文\n');
+    assert.equal(await fs.readFile(path.join(storage, '改名後/資料.txt'), 'utf8'), 'attachment');
+    assert.match(referenceDocument.text, /\[親\]\(\.\.\/改名後\/\)/);
+    assert.match(referenceDocument.text, /\[\[\.\.\/改名後\/子の改名\/\]\]/);
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '改名後', '改名後/子の改名']);
+    assert.deepEqual((await readRootStatus()).order, beforeRenameOrder.map(name => name === '自動改名' ? '改名後' : name));
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(storage, '改名後/.status'), 'utf8')).order, ['子の改名']);
+    // Body-only saves do not rename pre-existing folders whose heading differs.
+    referenceDocument.text += '本文の変更\n';
+    await saveModel(referenceDocument);
+    assert.ok(provider.getChildren().some(note => note.id === '参照'));
+    await assert.rejects(fs.stat(path.join(storage, '表示名')), { code: 'ENOENT' });
+    // Multiple saves queued together must use the latest saved title.
+    sourceDocument.text = '# 中間名\n本文\n';
+    await fs.writeFile(sourceDocument.uri.fsPath, sourceDocument.text);
+    const earlierSave = documentSaved(sourceDocument);
+    sourceDocument.text = '# 最終名\n本文\n';
+    const latestSave = saveModel(sourceDocument);
+    await Promise.all([earlierSave, latestSave]);
+    await assert.rejects(fs.stat(path.join(storage, '中間名')), { code: 'ENOENT' });
+    assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '最終名', '最終名/子の改名']);
+    for (const [title, error] of [['# 無効/名前', /Invalid|invalid|cannot|must|not contain/], ['# 音楽', /same name/]]) {
+      sourceDocument.text = title + '\n本文\n';
+      await saveModel(sourceDocument);
+      assert.match(errors.pop(), error);
+      assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+      assert.match(await fs.readFile(path.join(storage, '音楽/index.md'), 'utf8'), /^# 音楽\n/);
+    }
+    for (const text of ['\n# 後の見出し\n', '#   \n本文\n', '通常の本文\n', '## 小見出し\n']) {
+      sourceDocument.text = text;
+      await saveModel(sourceDocument);
+      assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+    }
+    // After rejected names the queue remains usable, including CRLF and closing hashes.
+    sourceDocument.text = '# 再改名 ###\r\n本文\r\n';
+    await saveModel(sourceDocument);
+    assert.equal(await fs.readFile(path.join(storage, '再改名/index.md'), 'utf8'), sourceDocument.text);
+    assert.ok(provider.getChildren().some(note => note.id === '再改名'));
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '再改名', '再改名/子の改名']);
+    await documentSaved({ uri: uri(path.join(storage, '再改名/資料.txt')), getText: () => '# 添付' });
+    assert.equal(errors.length, 0);
+    for (const document of [sourceDocument, childDocument, referenceDocument]) documents.splice(documents.indexOf(document), 1);
+    await fs.rm(path.join(storage, '再改名'), { recursive: true });
+    await fs.rm(path.join(storage, '参照'), { recursive: true });
+    await fs.writeFile(path.join(storage, '.status'), originalStatus);
+    await run('refresh');
+    assert.deepEqual(provider.getChildren().map(note => note.id), ['音楽']);
+    assert.deepEqual(favoriteRows().map(row => row.id), ['音楽']);
     // Closing all notes also disposes tag/search results and allows reopening them.
     const panelsBeforeClose = panelCount;
     api.window.tabGroups.all = [
@@ -1424,6 +1679,29 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       { uri: uri(path.join(temp, "another-workspace")) },
     ];
     await activate(context);
+    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren().map(note => note.id), ['音楽'], '同じ保存先のお気に入りは再起動後も保持');
+    // Migrate the former globalState list only when .status has no favorite field.
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
+    const beforeFavoriteMigration = await readRootStatus();
+    const { favorite: previousFavorite, ...statusWithoutFavorite } = beforeFavoriteMigration;
+    await fs.writeFile(rootStatusPath, JSON.stringify(statusWithoutFavorite));
+    savedState.set(favoriteStateKey, ['音楽', '音楽', 123]);
+    await activate(context);
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽']);
+    assert.deepEqual((await readRootStatus()).order, beforeFavoriteMigration.order);
+    assert.equal(savedState.get(favoriteStateKey), undefined, '移行成功後に古いglobalStateを削除する');
+    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren().map(note => note.id), ['音楽']);
+    // An explicitly empty disk list wins over stale globalState data.
+    for (const subscription of context.subscriptions) subscription.dispose();
+    context.subscriptions.length = 0;
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...await readRootStatus(), favorite: [] }));
+    savedState.set(favoriteStateKey, ['音楽']);
+    await activate(context);
+    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren(), []);
+    assert.deepEqual((await readRootStatus()).favorite, []);
+    assert.equal(savedState.get(favoriteStateKey), undefined);
+
     assert.deepEqual(
       views
         .get("fnote.notes")
@@ -1437,6 +1715,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     api.workspace.workspaceFolders = [{ uri: uri(workspaceRoot) }];
     settings.set("storagePath", "${workspace}/.fnote");
     await activate(context);
+    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren(), [], '別の保存先にお気に入りを混在させない');
     assert.equal(
       views.get("fnote.notes").treeDataProvider.getChildren().length,
       0,
@@ -1454,6 +1733,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const custom = path.join(temp, "custom-notes");
     settings.set("storagePath", custom);
     await activate(context);
+    assert.equal(labelSettings.get('patterns')[`${custom}/**/index.md`], '${dirname}', '保存先の変更に対応する');
+    assert.equal(labelSettings.get('patterns')['**/page.tsx'], '${dirname}/page');
     assert.equal(
       views.get("fnote.notes").treeDataProvider.getChildren().length,
       0,

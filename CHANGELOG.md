@@ -4,6 +4,7 @@
 
 ## v0.1.11 (Unreleased)
 
+- Shorten the note and tag view names to `List` and `Tags`.
 - Rename a note's folder when its first-line `#` heading changes and is saved. Preserve child notes and attachments, and update supported relative links, favorites, and display order. Report conflicting or invalid names without renaming the folder.
 - Show each note's storage folder name instead of `index.md` in editor tabs while keeping the standard Markdown file editor. Require VS Code 1.88 or later.
 - Add a **favorite** area for shortcuts to frequently used notes, displayed as a flat list with note tag icons.

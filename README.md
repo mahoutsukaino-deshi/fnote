@@ -14,7 +14,7 @@ fnote brings notes and work logs into VS Code. Keep project notes together and f
 ### Create a note
 
 1. Open **Fnote** in the activity bar.
-2. Click **＋** in **Fnote - List** and enter a note name.
+2. Click **＋** in **List** and enter a note name.
 3. Write in the Markdown editor and save with `Cmd + S` on Mac or `Ctrl + S` on Windows.
 
 Editor tabs show the note's storage folder name instead of `index.md`. Changing the first line's `# Note name` and saving also renames the folder and updates the tab. Empty headings, invalid folder names, and names that conflict with an existing folder at the same level do not rename the folder. This uses custom editor labels in VS Code 1.88 or later, with a rule limited to fnote's storage location.
@@ -34,13 +34,13 @@ Editor tabs show the note's storage folder name instead of `index.md`. Changing 
 
 ### Find notes
 
-Click `TODO` in **Fnote - Tags** to see matching notes and lines. Click a result to return to that position in the original note. The number beside a tag counts matching notes, including child tags and excluding archived notes.
+Click `TODO` in **Tags** to see matching notes and lines. Click a result to return to that position in the original note. The number beside a tag counts matching notes, including child tags and excluding archived notes.
 
 ![Find notes by tag](media/screenshots/tag-search.png)
 
 Write `@tag-name` in your notes; no registration is needed. Use `/` for a hierarchy, such as `@Work/Meetings`. Selecting a parent tag includes its children. Tags are case-sensitive and are ignored inside code, in email addresses, or when escaped as `\@`. Drag tags within the same level to reorder them.
 
-For keyword search, click the magnifying glass in **Fnote - List**. It searches note names and content, ignoring case, and includes archived notes.
+For keyword search, click the magnifying glass in **List**. It searches note names and content, ignoring case, and includes archived notes.
 
 ### Favorite notes
 

@@ -183,6 +183,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }));
   let notes: Note[] = [];
+  const savedFirstLines = new Map<string, string>();
+  const pendingTitleRenames = new Set<{ id: string }>();
+  const firstLine = (text: string): string => text.split('\n', 1)[0].replace(/\r$/, '').replace(/^\uFEFF/, '');
   let panel: vscode.WebviewPanel | undefined;
   let activeTag: string | undefined;
   let activeQuery: string | undefined;
@@ -205,6 +208,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const guard = <Args extends unknown[], Result>(fn: (...args: Args) => Result) => async (...args: Args): Promise<Awaited<Result> | undefined> => {
     try { return await fn(...args); }
     catch (error) { void vscode.window.showErrorMessage(`fnote: ${error instanceof Error ? error.message : String(error)}`); }
+  };
+  const configureNoteTabLabels = async (): Promise<void> => {
+    const labels = vscode.workspace.getConfiguration('workbench.editor.customLabels');
+    // Match only this note storage. Escape glob operators in folder names.
+    const base = root.path.replace(/\/$/, '').replace(/[\[\]{}*?]/g, character => `[${character}]`);
+    const pattern = `${base}/**/index.md`;
+    const inspected = labels.inspect<Record<string, string>>('patterns');
+    const hasWorkspaceRule = inspected?.workspaceValue?.[pattern] !== undefined;
+    const target = hasWorkspaceRule ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
+    const patterns = (hasWorkspaceRule ? inspected?.workspaceValue : inspected?.globalValue) ?? {};
+    if (patterns[pattern] !== '${dirname}') {
+      await labels.update('patterns', { ...patterns, [pattern]: '${dirname}' }, target);
+    }
+    if (!labels.get<boolean>('enabled', true)) {
+      const enabled = labels.inspect<boolean>('enabled');
+      await labels.update('enabled', true, enabled?.workspaceValue !== undefined
+        ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global);
+    }
   };
   const statusFile = (id: string) => vscode.Uri.joinPath(uri(id), '.status');
   const readStatus = async (id: string): Promise<NoteStatus> => {
@@ -417,7 +438,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         } else attachments.push({ id: child, parent: id, name, directory: false });
       }
       const open = vscode.workspace.textDocuments.find(d => d.uri.toString() === file(id).toString());
-      const text = open ? open.getText() : Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8');
+      const savedText = !open || !savedFirstLines.has(id)
+        ? Buffer.from(await vscode.workspace.fs.readFile(file(id))).toString('utf8') : undefined;
+      if (!savedFirstLines.has(id)) savedFirstLines.set(id, firstLine(savedText!));
+      const text = open ? open.getText() : savedText!;
       found.push({ id, parent, name: parseHeadings(text).find(heading => heading.level === 1)?.title ?? path.posix.basename(id), text, tags: parseTags(text), archived, attachments });
       for (const child of childNotes) await walkNote(child.id, id, child.entries, inheritedArchive);
     }
@@ -456,6 +480,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     };
     visit('');
     notes = ordered;
+    const existingIds = new Set(notes.map(note => note.id));
+    for (const id of savedFirstLines.keys()) if (!existingIds.has(id)) savedFirstLines.delete(id);
     order = ordered.map(note => note.id);
     if (legacyOrder.length) {
       await writeNoteOrder(order);
@@ -466,7 +492,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     events.fire(); tagEvents.fire(); await tree.update(notes); await tags.update(await tagRows()); decorate(); renderResults();
   }
   let refreshQueue = Promise.resolve();
-  function refresh() { refreshQueue = refreshQueue.catch(() => {}).then(scan); return refreshQueue; }
+  function queueNoteOperation(operation: () => Promise<void>): Promise<void> {
+    const pending = refreshQueue.catch(() => {}).then(operation);
+    refreshQueue = pending;
+    return pending;
+  }
+  function refresh() { return queueNoteOperation(scan); }
   function schedule() { clearTimeout(timer); timer = setTimeout(guard(refresh), 180); }
   function decorate() {
     const styles = config().get<TagStyles>('tagStyles', {});
@@ -546,6 +577,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   async function open(id: string, offset?: number, preserveFocus = false) {
     if (!notes.some(n => n.id === id)) return;
+    await guard(configureNoteTabLabels)();
     try { await vscode.workspace.fs.stat(file(id)); }
     catch (error) { if (!isMissing(error)) throw error; await vscode.workspace.fs.writeFile(file(id), Buffer.from('')); }
     const doc = await vscode.workspace.openTextDocument(file(id));
@@ -692,7 +724,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
     }
   }
-  async function relocate(id: string, destination: string, title?: string) {
+  function relocate(id: string, destination: string, title?: string): Promise<void> {
+    return queueNoteOperation(() => performRelocation(id, destination, title));
+  }
+  async function performRelocation(id: string, destination: string, title?: string) {
     if (id === destination && title === undefined) return;
     if (id !== destination) await ensureAbsent(destination);
     const edit = new vscode.WorkspaceEdit();
@@ -710,10 +745,49 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
     if (id !== destination) edit.renameFile(uri(id), uri(destination), { overwrite: false });
     if (!await vscode.workspace.applyEdit(edit)) throw new Error('Could not move the note.');
+    if (id !== destination) {
+      for (const [entry, line] of [...savedFirstLines]) {
+        if (!within(entry, id)) continue;
+        savedFirstLines.delete(entry);
+        savedFirstLines.set(destination + entry.slice(id.length), line);
+      }
+      for (const pending of pendingTitleRenames) {
+        if (within(pending.id, id)) pending.id = destination + pending.id.slice(id.length);
+      }
+    }
     if (id !== destination) await changeFavorites(ids => ids.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry));
     order = order.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry);
     await writeNoteOrder(order);
-    await refresh();
+    await scan();
+  }
+  function renameFromSavedTitle(document: vscode.TextDocument): Promise<void> | undefined {
+    const note = notes.find(item => file(item.id).toString() === document.uri.toString());
+    if (!note) return;
+    const line = firstLine(document.getText());
+    const previous = savedFirstLines.get(note.id);
+    savedFirstLines.set(note.id, line);
+    if (previous === undefined || previous === line) return;
+    const pending = { id: note.id };
+    pendingTitleRenames.add(pending);
+    return queueNoteOperation(async () => {
+      // A parent move can replace the child's TextDocument. Track the note ID
+      // through moves and prefer its current buffer when checking for stale saves.
+      const current = notes.find(item => item.id === pending.id);
+      if (disposed || !current || !/^ {0,3}#[\t ]+\S/.test(line)) return;
+      const open = vscode.workspace.textDocuments.find(item => item.uri.toString() === file(pending.id).toString());
+      const text = open?.getText() ?? Buffer.from(await vscode.workspace.fs.readFile(file(pending.id))).toString('utf8');
+      if (firstLine(text) !== line) return;
+      const name = parseHeadings(line)[0]?.title;
+      if (!name || name === path.posix.basename(current.id)) return;
+      const validation = validateName(name);
+      if (validation) throw new Error(`Could not rename the note folder: ${validation}`);
+      const destination = current.parent ? `${current.parent}/${name}` : name;
+      // The saved heading is already correct; only move the folder and update
+      // references, preserving the document's content and line endings.
+      await performRelocation(current.id, destination);
+      const renamed = notes.find(item => item.id === destination);
+      if (renamed) await tree.reveal(renamed);
+    }).finally(() => pendingTitleRenames.delete(pending));
   }
   async function move(id: string, parent: string) {
     if (!notes.some(n => n.id === id) || (parent && !notes.some(n => n.id === parent))) return;
@@ -1090,6 +1164,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(events, tagEvents, tree, tags, favorite, watcher,
     watcher.onDidCreate(schedule), watcher.onDidDelete(schedule), watcher.onDidChange(schedule),
     vscode.workspace.onDidChangeTextDocument(e => { if (notes.some(n => file(n.id).toString() === e.document.uri.toString())) schedule(); }),
+    vscode.workspace.onDidSaveTextDocument(guard(renameFromSavedTitle)),
     vscode.workspace.onDidCloseTextDocument(schedule),
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('fnote.dateTagSort')) dateTagSortOverride = undefined;
@@ -1102,5 +1177,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (n) await tree.reveal(n);
     })),
     { dispose() { disposed = true; clearTimeout(timer); decorationTypes.forEach(d => d.dispose()); panel?.dispose(); } });
+  await guard(configureNoteTabLabels)();
   await refresh();
 }

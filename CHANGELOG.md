@@ -2,6 +2,18 @@
 
 [日本語](CHANGELOG.ja.md)
 
+## v0.1.11 (Unreleased)
+
+- Rename a note's folder when its first-line `#` heading changes and is saved. Preserve child notes and attachments, and update supported relative links, favorites, and display order. Report conflicting or invalid names without renaming the folder.
+- Show each note's storage folder name instead of `index.md` in editor tabs while keeping the standard Markdown file editor. Require VS Code 1.88 or later.
+- Add a **favorite** area for shortcuts to frequently used notes, displayed as a flat list with note tag icons.
+- Add **Add to favorite** in the note list context menu and **Remove from favorite** in the favorite context menu. Removing a shortcut preserves the original note.
+- Support reordering within favorite by drag and drop or **Move Up / Move Down**. Store favorite note IDs and display order in `.status` at the storage root, distinguish identically named notes in different hierarchies, and follow notes renamed or moved within the extension.
+- Fix icon selection for parent notes and collapsed Markdown headings by comparing their own and descendant tags together according to the configured priority.
+- Include tags with an omitted or blank `mark` in `fnote.tagStyles` priority comparisons, using `fnote.defaultTagMark` when no parent icon can be inherited.
+- Inherit tag icon shapes and colors independently, giving a child tag's `markColor` or `color` precedence over ancestor colors.
+- Improve selection and display updates when dragging unselected rows or receiving list updates during a note-list drag.
+
 ## v0.1.10
 
 - Prevent Markdown link syntax from briefly appearing while typing by reusing link decorations instead of disposing and recreating them.

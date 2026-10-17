@@ -17,6 +17,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   const disposable = () => ({ dispose() {} });
   const uri = (p, fragment) => ({
     fsPath: p,
+    path: p.split(path.sep).join('/'),
     fragment,
     toString: () => `file://${p}${fragment ? `#${fragment}` : ''}`,
     with: change => uri(p, change.fragment),
@@ -31,6 +32,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelReveals = [],
     receiveMessage,
     configurationChanged,
+    documentSaved,
     selectionChanged,
     shown,
     linkProvider,
@@ -42,7 +44,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   const attachmentSources = [];
   let closeResult = true;
   const settings = new Map([["defaultTagMark", "🏷️"]]);
+  const labelSettings = new Map([['patterns', { '**/page.tsx': '${dirname}/page' }], ['enabled', false]]);
+  const workspaceLabelSettings = new Map();
+  const labelUpdates = [];
   const api = {
+    ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
     languages: {
       registerDocumentLinkProvider(selector, provider) {
         linkProvider = provider;
@@ -107,12 +113,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       replace(u, range, value) {
         this.ops.push(async () => {
           const text = await fs.readFile(u.fsPath, "utf8");
-          await fs.writeFile(
-            u.fsPath,
-            text.slice(0, range.start.offset) +
-              value +
-              text.slice(range.end.offset),
-          );
+          const updated = text.slice(0, range.start.offset) + value + text.slice(range.end.offset);
+          await fs.writeFile(u.fsPath, updated);
+          documents.find(doc => doc.uri.toString() === u.toString())?.setText?.(updated);
         });
       }
       createFile(u, options = {}) {
@@ -123,7 +126,14 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         });
       }
       renameFile(a, b) {
-        this.ops.push(() => fs.rename(a.fsPath, b.fsPath));
+        this.ops.push(async () => {
+          await fs.rename(a.fsPath, b.fsPath);
+          for (const document of documents) {
+            if (document.uri.fsPath === a.fsPath || document.uri.fsPath.startsWith(a.fsPath + path.sep)) {
+              document.uri = uri(b.fsPath + document.uri.fsPath.slice(a.fsPath.length));
+            }
+          }
+        });
       }
       deleteFile(a) {
         this.ops.push(() => fs.rm(a.fsPath, { recursive: true }));
@@ -144,11 +154,18 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     workspace: {
       workspaceFolders: [{ uri: uri(temp) }],
       textDocuments: documents,
-      getConfiguration: () => ({
-        inspect: (key) => ({ globalValue: settings.get(key) }),
-        get: (key, fallback) =>
-          settings.has(key) ? settings.get(key) : fallback,
-      }),
+      getConfiguration: section => {
+        const values = section === 'workbench.editor.customLabels' ? labelSettings : settings;
+        return {
+          inspect: key => ({ globalValue: values.get(key), workspaceValue: section === 'workbench.editor.customLabels' ? workspaceLabelSettings.get(key) : undefined }),
+          get: (key, fallback) => section === 'workbench.editor.customLabels' && workspaceLabelSettings.has(key)
+            ? workspaceLabelSettings.get(key) : values.has(key) ? values.get(key) : fallback,
+          update: async (key, value, target) => {
+            labelUpdates.push({ key, value, target });
+            (target === api.ConfigurationTarget.Workspace ? workspaceLabelSettings : values).set(key, value);
+          },
+        };
+      },
       fs: {
         readDirectory: async (u) =>
           (
@@ -187,6 +204,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
         onDidChange: disposable,
       }),
       onDidChangeTextDocument: disposable,
+      onDidSaveTextDocument: listener => { documentSaved = listener; return disposable(); },
       onDidCloseTextDocument: disposable,
       onDidChangeConfiguration: (listener) => {
         configurationChanged = listener;
@@ -285,6 +303,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   try {
     const { activate } = require("../dist/extension");
     await activate(context);
+    const noteTabPattern = `${temp}/.fnote/**/index.md`;
+    assert.deepEqual(labelSettings.get('patterns'), { '**/page.tsx': '${dirname}/page', [noteTabPattern]: '${dirname}' }, '保存先に限定したタブ名ルールを追加し、既存のルールを保持する');
+    assert.equal(labelSettings.get('enabled'), true);
     const linkText = "[[../旅行/]]\n[](../旅行/)\n[旅行](../%E6%97%85%E8%A1%8C/)";
     const linkDocument = {
       uri: uri(path.join(temp, ".fnote/日記/index.md")),
@@ -367,6 +388,17 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs.push("音楽");
     await run("add");
     const parent = provider.getChildren()[0];
+    const labelUpdatesBeforeOpen = labelUpdates.length;
+    await run('open', parent.id);
+    assert.equal(shown.doc.uri.toString(), uri(path.join(temp, '.fnote/音楽/index.md')).toString(), '通常のファイルURIを維持する');
+    assert.equal(labelUpdates.length, labelUpdatesBeforeOpen, '設定済みなら設定を書き直さない');
+    workspaceLabelSettings.set('patterns', { '**/route.ts': 'Route', [noteTabPattern]: '${filename}' });
+    workspaceLabelSettings.set('enabled', false);
+    await run('open', parent.id);
+    assert.deepEqual(workspaceLabelSettings.get('patterns'), { '**/route.ts': 'Route', [noteTabPattern]: '${dirname}' }, 'ワークスペースで上書きされている場合も、他のルールを保ってノート名を適用する');
+    assert.equal(workspaceLabelSettings.get('enabled'), true);
+    assert.equal(labelUpdates.at(-1).target, api.ConfigurationTarget.Workspace);
+    workspaceLabelSettings.clear();
     assert.equal(provider.getTreeItem(parent).label, "$(note) 音楽");
     settings.set("untaggedNoteMark", "📝");
     assert.equal(provider.getTreeItem(parent).label, "📝 音楽");
@@ -1499,6 +1531,104 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual((await readRootStatus()).favorite, ['音楽']);
     assert.equal(provider.getChildren().length, 1);
     assert.equal(errors.length, 0);
+    // Saving a changed first-line H1 renames the folder using the same relocation path.
+    const storage = path.join(temp, '.fnote');
+    const originalStatus = await fs.readFile(path.join(storage, '.status'), 'utf8');
+    const writeFixture = async (id, text) => {
+      await fs.mkdir(path.join(storage, id), { recursive: true });
+      await fs.writeFile(path.join(storage, id, 'index.md'), text);
+    };
+    await writeFixture('自動改名', '# 自動改名\r\n\r\n[資料](資料.txt)\r\n');
+    await writeFixture('自動改名/子', '# 子\n本文\n');
+    await fs.writeFile(path.join(storage, '自動改名/資料.txt'), 'attachment');
+    await writeFixture('参照', '# 表示名\n[親](../自動改名/)\n[[../自動改名/子/]]\n');
+    await run('refresh');
+    const source = provider.getChildren().find(note => note.id === '自動改名');
+    await run('addFavorite', source);
+    await run('addFavorite', provider.getChildren(source).find(note => note.id === '自動改名/子'));
+    const beforeRenameOrder = provider.getChildren().map(note => note.id);
+    const openModel = async id => {
+      const document = {
+        uri: uri(path.join(storage, id, 'index.md')),
+        text: await fs.readFile(path.join(storage, id, 'index.md'), 'utf8'),
+        getText() { return this.text; },
+        setText(text) { this.text = text; },
+        positionAt: offset => ({ offset }),
+      };
+      documents.push(document);
+      return document;
+    };
+    const saveModel = async document => {
+      await fs.writeFile(document.uri.fsPath, document.text);
+      await documentSaved(document);
+    };
+    const sourceDocument = await openModel('自動改名');
+    const childDocument = await openModel('自動改名/子');
+    const referenceDocument = await openModel('参照');
+    sourceDocument.text = sourceDocument.text.replace('# 自動改名', '# 改名後');
+    await run('refresh');
+    assert.ok(provider.getChildren().some(note => note.id === '自動改名'), '編集中はフォルダーを移動しない');
+    await assert.rejects(fs.stat(path.join(storage, '改名後')), { code: 'ENOENT' });
+    childDocument.text = '# 子の改名\n本文\n';
+    await fs.writeFile(sourceDocument.uri.fsPath, sourceDocument.text);
+    await fs.writeFile(childDocument.uri.fsPath, childDocument.text);
+    const parentSave = documentSaved(sourceDocument);
+    const childSave = documentSaved(childDocument);
+    // The child buffer may close or be replaced while VS Code moves its parent.
+    documents.splice(documents.indexOf(childDocument), 1);
+    await Promise.all([parentSave, childSave]);
+    childDocument.uri = uri(path.join(storage, '改名後/子の改名/index.md'));
+    documents.push(childDocument);
+    assert.equal(await fs.readFile(path.join(storage, '改名後/index.md'), 'utf8'), '# 改名後\r\n\r\n[資料](資料.txt)\r\n');
+    assert.equal(await fs.readFile(path.join(storage, '改名後/子の改名/index.md'), 'utf8'), '# 子の改名\n本文\n');
+    assert.equal(await fs.readFile(path.join(storage, '改名後/資料.txt'), 'utf8'), 'attachment');
+    assert.match(referenceDocument.text, /\[親\]\(\.\.\/改名後\/\)/);
+    assert.match(referenceDocument.text, /\[\[\.\.\/改名後\/子の改名\/\]\]/);
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '改名後', '改名後/子の改名']);
+    assert.deepEqual((await readRootStatus()).order, beforeRenameOrder.map(name => name === '自動改名' ? '改名後' : name));
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(storage, '改名後/.status'), 'utf8')).order, ['子の改名']);
+    // Body-only saves do not rename pre-existing folders whose heading differs.
+    referenceDocument.text += '本文の変更\n';
+    await saveModel(referenceDocument);
+    assert.ok(provider.getChildren().some(note => note.id === '参照'));
+    await assert.rejects(fs.stat(path.join(storage, '表示名')), { code: 'ENOENT' });
+    // Multiple saves queued together must use the latest saved title.
+    sourceDocument.text = '# 中間名\n本文\n';
+    await fs.writeFile(sourceDocument.uri.fsPath, sourceDocument.text);
+    const earlierSave = documentSaved(sourceDocument);
+    sourceDocument.text = '# 最終名\n本文\n';
+    const latestSave = saveModel(sourceDocument);
+    await Promise.all([earlierSave, latestSave]);
+    await assert.rejects(fs.stat(path.join(storage, '中間名')), { code: 'ENOENT' });
+    assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '最終名', '最終名/子の改名']);
+    for (const [title, error] of [['# 無効/名前', /Invalid|invalid|cannot|must|not contain/], ['# 音楽', /same name/]]) {
+      sourceDocument.text = title + '\n本文\n';
+      await saveModel(sourceDocument);
+      assert.match(errors.pop(), error);
+      assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+      assert.match(await fs.readFile(path.join(storage, '音楽/index.md'), 'utf8'), /^# 音楽\n/);
+    }
+    for (const text of ['\n# 後の見出し\n', '#   \n本文\n', '通常の本文\n', '## 小見出し\n']) {
+      sourceDocument.text = text;
+      await saveModel(sourceDocument);
+      assert.ok(provider.getChildren().some(note => note.id === '最終名'));
+    }
+    // After rejected names the queue remains usable, including CRLF and closing hashes.
+    sourceDocument.text = '# 再改名 ###\r\n本文\r\n';
+    await saveModel(sourceDocument);
+    assert.equal(await fs.readFile(path.join(storage, '再改名/index.md'), 'utf8'), sourceDocument.text);
+    assert.ok(provider.getChildren().some(note => note.id === '再改名'));
+    assert.deepEqual((await readRootStatus()).favorite, ['音楽', '再改名', '再改名/子の改名']);
+    await documentSaved({ uri: uri(path.join(storage, '再改名/資料.txt')), getText: () => '# 添付' });
+    assert.equal(errors.length, 0);
+    for (const document of [sourceDocument, childDocument, referenceDocument]) documents.splice(documents.indexOf(document), 1);
+    await fs.rm(path.join(storage, '再改名'), { recursive: true });
+    await fs.rm(path.join(storage, '参照'), { recursive: true });
+    await fs.writeFile(path.join(storage, '.status'), originalStatus);
+    await run('refresh');
+    assert.deepEqual(provider.getChildren().map(note => note.id), ['音楽']);
+    assert.deepEqual(favoriteRows().map(row => row.id), ['音楽']);
     // Closing all notes also disposes tag/search results and allows reopening them.
     const panelsBeforeClose = panelCount;
     api.window.tabGroups.all = [
@@ -1603,6 +1733,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const custom = path.join(temp, "custom-notes");
     settings.set("storagePath", custom);
     await activate(context);
+    assert.equal(labelSettings.get('patterns')[`${custom}/**/index.md`], '${dirname}', '保存先の変更に対応する');
+    assert.equal(labelSettings.get('patterns')['**/page.tsx'], '${dirname}/page');
     assert.equal(
       views.get("fnote.notes").treeDataProvider.getChildren().length,
       0,

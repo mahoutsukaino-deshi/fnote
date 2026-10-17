@@ -3,10 +3,10 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "publisher": "maoren",
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.88.0"
   },
   "categories": [
     "Other"

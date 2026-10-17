@@ -44,6 +44,12 @@
           "type": "webview"
         },
         {
+          "id": "fnote.favorite",
+          "name": "favorite",
+          "contextualTitle": "favorite",
+          "icon": "$(star-full)"
+        },
+        {
           "id": "fnote.tags",
           "type": "webview",
           "name": "fnote - tags",
@@ -160,6 +166,30 @@
       {
         "command": "fnote.toggleDateTagSort",
         "title": "fnote: Change Date Tag Sort"
+      },
+      {
+        "command": "fnote.addFavorite",
+        "title": "Add to favorite",
+        "category": "fnote",
+        "icon": "$(star-add)"
+      },
+      {
+        "command": "fnote.removeFavorite",
+        "title": "Remove from favorite",
+        "category": "fnote",
+        "icon": "$(star-delete)"
+      },
+      {
+        "command": "fnote.favoriteUp",
+        "title": "Move Up",
+        "category": "fnote",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "fnote.favoriteDown",
+        "title": "Move Down",
+        "category": "fnote",
+        "icon": "$(arrow-down)"
       }
     ],
     "keybindings": [
@@ -207,6 +237,16 @@
         "command": "fnote.deleteAttachment",
         "key": "delete",
         "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
+      },
+      {
+        "command": "fnote.removeFavorite",
+        "key": "cmd+backspace",
+        "when": "isMac && focusedView == fnote.favorite && listFocus"
+      },
+      {
+        "command": "fnote.removeFavorite",
+        "key": "delete",
+        "when": "!isMac && focusedView == fnote.favorite && listFocus"
       }
     ],
     "menus": {
@@ -302,12 +342,46 @@
           "command": "fnote.deleteAttachment",
           "when": "webviewId == 'fnote.notes' && webviewSection == 'attachment'",
           "group": "9_delete@1"
+        },
+        {
+          "command": "fnote.addFavorite",
+          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "group": "4_favorite@1"
         }
       ],
       "commandPalette": [
         {
           "command": "fnote.archiveChecked",
           "when": "false"
+        },
+        {
+          "command": "fnote.removeFavorite",
+          "when": "false"
+        },
+        {
+          "command": "fnote.favoriteUp",
+          "when": "false"
+        },
+        {
+          "command": "fnote.favoriteDown",
+          "when": "false"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fnote.favoriteUp",
+          "when": "view == fnote.favorite && viewItem == favorite",
+          "group": "3_reorder@1"
+        },
+        {
+          "command": "fnote.favoriteDown",
+          "when": "view == fnote.favorite && viewItem == favorite",
+          "group": "3_reorder@2"
+        },
+        {
+          "command": "fnote.removeFavorite",
+          "when": "view == fnote.favorite && viewItem == favorite",
+          "group": "9_delete@1"
         }
       ]
     },

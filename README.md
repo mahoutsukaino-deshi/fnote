@@ -40,6 +40,12 @@ Write `@tag-name` in your notes; no registration is needed. Use `/` for a hierar
 
 For keyword search, click the magnifying glass in **Fnote - List**. It searches note names and content, ignoring case, and includes archived notes.
 
+### Favorite notes
+
+Save shortcuts to frequently used notes in **favorite**. Right-click a note in the note list and select **Add to favorite**. This flat list shows the same tag icons as the note list without expanding children or headings. Within **favorite**, drop onto another row to place a shortcut before it, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
+
+To remove a shortcut, right-click it and select **Remove from favorite**. The original note remains intact. Favorite note IDs are stored in display order in the `favorite` array of `.status` at the note storage root. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension.
+
 ### Organize and navigate
 
 Right-click a note for **Add Child Note**, **Rename**, **Move**, and **Delete**. Drag a note to a row’s center to make it a child, to its top or bottom edge to reorder it, or below the list to move it to the top level. Moving a parent also moves its children.

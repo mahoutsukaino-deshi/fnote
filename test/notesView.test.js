@@ -1,43 +1,8 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-const path = require('node:path');
 
-function setup(tagMode = false, platform = '') {
-  const sent = [], states = [], listeners = new Map(), documentListeners = new Map();
-  let document;
-  class Element {
-    children = []; dataset = {}; style = {}; handlers = {}; classes = new Set();
-    classList = { toggle: (key, active) => active ? this.classes.add(key) : this.classes.delete(key),
-      add: (...keys) => keys.forEach(key => this.classes.add(key)), remove: (...keys) => keys.forEach(key => this.classes.delete(key)) };
-    append(...children) { for (const child of children) { child.parent = this; this.children.push(child); } }
-    contains(element) { return element === this || this.children.some(child => child.contains(element)); }
-    replaceChildren() {
-      if (this.contains(document.activeElement)) document.activeElement = document.body;
-      this.children = [];
-    }
-    setAttribute() {}
-    focus() { document.activeElement = this; }
-    select() {}
-    scrollIntoView() {}
-    closest(selector) { return selector === '.row' && this.className === 'row' ? this : this.parent?.closest(selector); }
-    querySelectorAll() { return this.children.filter(child => child.className === 'row'); }
-    querySelector() { return this.children.find(child => child.classes.has('selected')); }
-    addEventListener(type, fn) { this.handlers[type] = fn; }
-  }
-  const tree = new Element(), menu = new Element(), body = new Element();
-  body.dataset.tags = String(tagMode);
-  document = { body, activeElement: body, getElementById: id => id === 'tree' ? tree : menu,
-    createElement: () => new Element(), addEventListener: (type, fn) => documentListeners.set(type, fn) };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {
-    document, window: { scrollY: 0, scrollTo() {}, addEventListener: (type, fn) => listeners.set(type, fn) },
-    navigator: { platform },
-    acquireVsCodeApi: () => ({ getState: () => ({}), setState: state => states.push(state), postMessage: msg => sent.push(msg) })
-  });
-  return { document, body, tree, sent, states, documentListeners, message: data => listeners.get('message')({ data }) };
-}
+const { setup } = require('../test-support/notesWebview');
 
 test('after the host delivers a Shift-drag, webview events do not reactivate its drop overlay', async () => {
   const { tree, body, sent, message, documentListeners } = setup();
@@ -302,4 +267,123 @@ test('Markdown見出しにノートのタグアイコンと設定した見出し
   assert.equal(row.children[2].textContent, '#');
   assert.equal(row.children[2].style.color, '#654321');
   assert.equal(row.children[3].textContent, '見出し');
+});
+
+function transfer() {
+  const data = new Map();
+  return { get types() { return [...data.keys()]; }, setData(type, value) { data.set(type, value); }, getData: type => data.get(type) || '' };
+}
+function dragEvent(target, dataTransfer) {
+  return { target, dataTransfer, preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } };
+}
+
+for (const selected of [undefined, 'other']) test(`ノート一覧内の移動: 未選択行と再描画 (${selected ?? '選択なし'})`, () => {
+  const view = setup();
+  const rows = [{ id: 'other', parent: '', label: 'Other' }, { id: '親/同名 % #', parent: '', label: '同名' }];
+  view.message({ type: 'notes', rows, selected });
+  const row = view.tree.children[1];
+  row.onmousedown({ button: 0 });
+  view.message({ type: 'notes', rows });
+  view.message({ type: 'select', id: 'other', active: true });
+  assert.ok(view.tree.contains(row), 'ドラッグ開始前にもDOMを保持する');
+  const data = transfer();
+  row.ondragstart({ dataTransfer: data });
+  assert.equal(data.getData('text/uri-list'), '');
+  assert.equal(data.getData('text/plain'), rows[1].id);
+  assert.equal(data.effectAllowed, 'move');
+  view.message({ type: 'notes', rows: [] });
+  assert.ok(view.tree.contains(row));
+  view.documentListeners.get('dragend')();
+  assert.equal(view.tree.querySelectorAll('.row').length, 0);
+});
+
+test('通常のクリックとドラッグ未開始のマウス解放では保留した更新を再開する', () => {
+  for (const click of [false, true]) {
+    const view = setup();
+    const rows = [{ id: 'note', parent: '', label: 'Note' }];
+    view.message({ type: 'notes', rows });
+    const row = view.tree.children[0];
+    row.onmousedown({ button: 0 });
+    view.message({ type: 'notes', rows: [{ ...rows[0], label: 'Updated' }] });
+    view.documentListeners.get('mouseup')();
+    assert.ok(view.tree.contains(row), 'mouseupでクリック対象を消さない');
+    if (click) row.onclick();
+    view.flushTimers();
+    assert.ok(!view.tree.contains(row));
+    assert.ok(view.tree.children[0].children.some(child => child.textContent === 'Updated'));
+    assert.equal(view.sent.some(message => message.type === 'open'), click);
+    view.message({ type: 'notes', rows });
+    assert.ok(view.tree.children[0].children.some(child => child.textContent === 'Note'));
+  }
+});
+
+test('ドラッグのキャンセル後は選択・一覧更新と次のドラッグを再開できる', () => {
+  const view = setup();
+  const rows = [{ id: 'note', parent: '', label: 'Note' }];
+  view.message({ type: 'notes', rows });
+  const row = view.tree.children[0];
+  row.onmousedown({ button: 0 });
+  row.ondragstart({ dataTransfer: transfer() });
+  view.message({ type: 'select', id: 'note', active: true });
+  view.documentListeners.get('keydown')({ key: 'Escape' });
+  assert.ok(!view.tree.contains(row));
+  assert.ok(view.tree.children[0].classes.has('active'));
+  view.tree.children[0].ondragstart({ dataTransfer: transfer() });
+  view.message({ type: 'notes', rows: [] });
+  view.documentListeners.get('dragend')();
+  assert.equal(view.tree.querySelectorAll('.row').length, 0);
+});
+
+test('選択同期と一覧更新が重なってもノート一覧内の移動先を維持する', async () => {
+  const view = setup();
+  const rows = [{ id: 'source', parent: '', label: 'Source' }, { id: 'target', parent: '', label: 'Target' }];
+  view.message({ type: 'notes', rows });
+  const source = view.tree.children[0], target = view.tree.children[1];
+  target.getBoundingClientRect = () => ({ top: 0, height: 22 });
+  const data = transfer();
+  source.onmousedown({ button: 0 });
+  source.ondragstart({ dataTransfer: data });
+  view.message({ type: 'select', id: 'target', active: true });
+  view.message({ type: 'notes', rows });
+  await view.tree.handlers.drop({ ...dragEvent(target, data), clientY: 11 });
+  const drop = view.sent.find(message => message.type === 'drop');
+  assert.equal(drop.id, 'source');
+  assert.equal(drop.target, 'target');
+  assert.equal(drop.position, 'inside');
+});
+
+test('通常押下はbuttons=0で復帰し、ネイティブドラッグはdragendまで行を維持する', () => {
+  for (const startDrag of [false, true]) {
+    const view = setup();
+    const rows = [{ id: 'note', parent: '', label: 'Note' }];
+    view.message({ type: 'notes', rows });
+    const row = view.tree.children[0];
+    row.onmousedown({ button: 0 });
+    if (startDrag) row.ondragstart({ dataTransfer: transfer() });
+    view.message({ type: 'notes', rows: [] });
+    view.documentListeners.get('mousemove')({ buttons: 1 });
+    assert.ok(view.tree.contains(row), '押下中はドラッグ元を維持する');
+    view.documentListeners.get('mousemove')({ buttons: 0 });
+    if (startDrag) {
+      assert.ok(view.tree.contains(row), 'buttons=0だけではネイティブドラッグを終了しない');
+      view.documentListeners.get('dragend')();
+    }
+    assert.equal(view.tree.querySelectorAll('.row').length, 0);
+    assert.ok(!view.sent.some(message => message.type === 'shortcutDrop'));
+  }
+});
+
+
+test('favoriteからノート一覧へのドロップは解除やノート移動・添付を行わない', async () => {
+  const view = setup();
+  view.message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });
+  for (const raw of ['', JSON.stringify({ id: 'Parent/Alpha' })]) {
+    const data = transfer();
+    data.setData('application/vnd.fnote.favorite', raw);
+    const hover = dragEvent(view.tree.children[0], data);
+    view.tree.handlers.dragover(hover);
+    assert.ok(!hover.prevented);
+    await view.tree.handlers.drop(dragEvent(view.tree.children[0], data));
+  }
+  assert.ok(!view.sent.some(message => ['shortcutDrop', 'drop', 'attachmentDrop'].includes(message.type)));
 });

@@ -11,11 +11,12 @@ export function linkMark(value: string): { icon?: string; text: string } {
 }
 
 const images = new Map<string, string>();
-export function linkIconUri(icon: string): string {
-  const key = icon;
+export function linkIconUri(icon: string, color = 'black'): string {
+  const key = `${icon}:${color}`;
   let uri = images.get(key);
   if (!uri) {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${outlines.size} ${outlines.size}"><path fill="black" transform="translate(0 ${outlines.ascent}) scale(1 -1)" d="${outlines.paths[icon]}"/></svg>`;
+    const fill = color.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${outlines.size} ${outlines.size}"><path fill="${fill}" transform="translate(0 ${outlines.ascent}) scale(1 -1)" d="${outlines.paths[icon]}"/></svg>`;
     uri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
     images.set(key, uri);
   }

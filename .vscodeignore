@@ -6,6 +6,7 @@
 !CHANGELOG.ja.md
 !dist/core.js
 !dist/extension.js
+!dist/favoriteView.js
 !dist/linkMark.js
 !dist/notesView.js
 !media/notes.js

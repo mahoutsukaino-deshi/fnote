@@ -2,11 +2,16 @@
   const api = acquireVsCodeApi();
   const tree = document.getElementById('tree');
   const tagMode = document.body.dataset.tags === 'true';
+  const noteMime = 'application/vnd.fnote.note';
+  const favoriteMime = 'application/vnd.fnote.favorite';
+  const internalTypes = [noteMime, favoriteMime, 'application/vnd.fnote.attachment', 'application/vnd.fnote.tag'];
+  const isInternalDrag = event => [...(event.dataTransfer?.types || [])].some(type => internalTypes.includes(type));
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
   const saved = api.getState() || {};
   let rows = [], selected = saved.selected, active, collapsed = new Set(saved.collapsed || []);
   const dateBranches = new Set(saved.dateBranches || []);
-  let dragging, drop, pending, editing, editInput;
+  let dragging, drop, pointerPress, editing, editInput, incoming = false;
+  let pending = [];
   const within = (id, parent) => {
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
@@ -125,7 +130,20 @@
           row.classList.add('editing'); addInlineEditor(row, label.textContent);
         }
         tree.append(row);
-        row.onclick = () => { setActive(note.id); select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id); };
+        row.onmousedown = e => {
+          if (e.button !== 0 || note.noteId || renaming) return;
+          // Keep the pressed DOM node alive until click or dragend, including
+          // the interval before the browser dispatches dragstart.
+          // A new press also recovers a drag whose end occurred outside the iframe.
+          dragging = undefined; incoming = false; clearDrop();
+          pointerPress = {};
+          select(note.id, true);
+          send('select', note.id);
+        };
+        row.onclick = () => {
+          setActive(note.id); select(note.id, true); send(note.attachment ? 'openAttachment' : 'open', note.id);
+          finishPointer();
+        };
         row.dataset.vscodeContext = JSON.stringify({
           webviewSection: note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
           'fnote.noteArchived': Boolean(note.archived),
@@ -136,7 +154,16 @@
           select(note.id, true);
           send('select', note.id);
         };
-        row.ondragstart = e => { if (note.noteId) { e.preventDefault(); return; } dragging = note.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', note.id); select(note.id); };
+        row.ondragstart = e => {
+          if (note.noteId) { e.preventDefault(); return; }
+          dragging = note.id;
+          e.dataTransfer.effectAllowed = 'move';
+          const mime = tagMode ? 'application/vnd.fnote.tag' : note.attachment ? 'application/vnd.fnote.attachment' : noteMime;
+          e.dataTransfer.setData(mime, JSON.stringify({ id: note.id }));
+          e.dataTransfer.setData('text/plain', note.id);
+          select(note.id, true);
+          send('select', note.id);
+        };
         if (!collapsed.has(note.id)) branch(note.id, depth + 1);
       }
       if (editing?.mode === 'create' && editing.parent === parent) addCreateRow(parent, depth);
@@ -181,7 +208,7 @@
     indicator.classList.add(position);
   }
   function attachmentTarget(event) {
-    if (tagMode) return;
+    if (tagMode || isInternalDrag(event)) return;
     const row = event.target.closest('.row');
     if (!row || row.dataset.outline === 'true') return;
     let id = row.dataset.id;
@@ -202,12 +229,17 @@
   // Cover the whole document, including empty space crossed before a note row.
   for (const type of ['dragenter', 'dragover', 'drop']) {
     document.addEventListener(type, event => {
-      if (tagMode || dragging || !hasExternalFiles(event)) return;
+      if (tagMode || dragging || isInternalDrag(event) || !hasExternalFiles(event)) return;
       event.preventDefault();
       event.stopPropagation();
+      incoming = type !== 'drop';
       event.dataTransfer.dropEffect = attachmentTarget(event) ? 'copy' : 'none';
+      if (type === 'drop') finishDrag();
     });
   }
+  document.addEventListener('dragleave', event => {
+    if (!document.body.contains(event.relatedTarget)) { incoming = false; flushPending(); }
+  });
   function externalUris(event) {
     const listed = event.dataTransfer?.getData('text/uri-list') || event.dataTransfer?.getData('text/plain') || '';
     const uris = listed.split(/\r?\n/).map(value => value.trim()).filter(value => value && !value.startsWith('#') && (value.startsWith('file://') || value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)));
@@ -241,8 +273,10 @@
     return result;
   }
   tree.addEventListener('dragover', e => {
+    if (!dragging && isInternalDrag(e)) return;
     if (!dragging) {
       if (!hasExternalFiles(e)) return;
+      incoming = true;
       const target = attachmentTarget(e);
       if (!target) return;
       e.preventDefault(); clearDrop(); e.target.closest('.row').classList.add('inside'); drop = { target, position: 'attachment' }; e.dataTransfer.dropEffect = 'copy';
@@ -252,11 +286,12 @@
     if (e.clientY < 32) window.scrollBy(0, -12);
     if (e.clientY > window.innerHeight - 32) window.scrollBy(0, 12);
   });
-  tree.addEventListener('dragleave', e => { if (!tree.contains(e.relatedTarget)) clearDrop(); });
+  tree.addEventListener('dragleave', e => { if (!tree.contains(e.relatedTarget)) { tree.classList.remove('inside'); clearDrop(); } });
   tree.addEventListener('drop', async e => {
+    if (!dragging && isInternalDrag(e)) return;
     if (!dragging) {
       const target = attachmentTarget(e);
-      if (!target || !hasExternalFiles(e)) return;
+      if (!target || !hasExternalFiles(e)) { finishDrag(); return; }
       e.preventDefault(); e.stopPropagation();
       const uris = externalUris(e);
       try {
@@ -274,9 +309,31 @@
     if (dragging && drop) send('drop', dragging, drop);
     finishDrag();
   });
-  function finishDrag() { dragging = undefined; clearDrop(); document.getElementById('root-drop').textContent = ''; if (pending) { rows = pending; pending = undefined; render(); } }
+  function flushPending() {
+    if (pointerPress || dragging || incoming) return;
+    const messages = pending; pending = [];
+    for (const message of messages) receiveMessage(message);
+  }
+  function finishPointer() { pointerPress = undefined; flushPending(); }
+  function finishDrag() {
+    tree.classList.remove('inside'); dragging = undefined; incoming = false; clearDrop();
+    document.getElementById('root-drop').textContent = '';
+    finishPointer();
+  }
+  document.addEventListener('mouseup', () => {
+    const press = pointerPress;
+    if (!press || dragging) return;
+    // A click still needs its original target after mouseup. The timer also
+    // releases a press that was cancelled by moving off the row.
+    setTimeout(() => { if (pointerPress === press && !dragging) finishPointer(); }, 0);
+  });
   document.addEventListener('dragend', finishDrag);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') clearDrop(); });
+  document.addEventListener('mousemove', e => {
+    // Mouse button state is not a reliable end signal during native HTML D&D.
+    // Only recover an ordinary press here; drop/dragend/Escape finish a drag.
+    if (e.buttons === 0 && pointerPress && !dragging) finishPointer();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') finishDrag(); });
   tree.addEventListener('keydown', e => {
     const visible = [...tree.querySelectorAll('.row')];
     const current = rows.find(row => row.id === selected); const index = visible.findIndex(row => row.dataset.id === selected);
@@ -309,8 +366,10 @@
       visible[index].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: rect.left, clientY: rect.bottom }));
     }
   });
-  window.addEventListener('message', e => {
-    const message = e.data;
+  function receiveMessage(message) {
+    // Replacing rows during a native drag can cancel it and even prevent
+    // dragend from reaching the source, leaving future updates suspended.
+    if (pointerPress || dragging || incoming) { pending.push(message); return; }
     if (message.type === 'edit') {
       beginEdit(message);
       return;
@@ -328,12 +387,12 @@
       }
       persist();
     }
-    if (message.type === 'notes') { if (dragging) { pending = message.rows; return; } rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render(); }
+    if (message.type === 'notes') { rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render(); }
     if (message.type === 'expandAll') {
       collapsed.clear(); persist(); render();
     }
     if (message.type === 'collapseAll') {
-      collapsed = new Set((pending || rows).map(row => row.parent).filter(Boolean));
+      collapsed = new Set(rows.map(row => row.parent).filter(Boolean));
       while (selected && rows.find(row => row.id === selected)?.parent) selected = rows.find(row => row.id === selected).parent;
       persist(); render();
     }
@@ -344,6 +403,7 @@
       if (message.focus) select(message.id, true);
       tree.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
     }
-  });
+  }
+  window.addEventListener('message', e => receiveMessage(e.data));
   send('ready');
 })();

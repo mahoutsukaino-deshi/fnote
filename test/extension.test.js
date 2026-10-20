@@ -35,6 +35,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     favoriteMessage,
     favoriteSnapshot = [],
     favoritePostedMessages = [],
+    rootStatusWrites = 0,
     documentSaved,
     selectionChanged,
     shown,
@@ -175,7 +176,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
             await fs.readdir(u.fsPath, { withFileTypes: true }).catch(fileError)
           ).map((e) => [e.name, e.isDirectory() ? 2 : 1]),
         readFile: (u) => fs.readFile(u.fsPath).catch(fileError),
-        writeFile: (u, data) => fs.writeFile(u.fsPath, data),
+        writeFile: (u, data) => {
+          if (u.fsPath === path.join(temp, '.fnote/.status')) rootStatusWrites++;
+          return fs.writeFile(u.fsPath, data);
+        },
         createDirectory: (u) => fs.mkdir(u.fsPath, { recursive: true }),
         stat: async (u) => {
           const stat = await fs.stat(u.fsPath).catch(fileError);
@@ -651,6 +655,21 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const initialRootStatus = await readRootStatus();
     assert.deepEqual(initialRootStatus.favorite, [child.id, parent.id]);
     assert.equal(savedState.get(favoriteStateKey), undefined);
+    const noteExpansion = { type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: [parent.id] };
+    const favoriteExpansion = { type: 'expansionState', allCollapsed: false, hasBranches: true,
+      collapsed: [favoriteKey(parent.id, child.id)] };
+    await Promise.all([sidebarMessage(noteExpansion), favoriteMessage(favoriteExpansion), run('favoriteDown', child)]);
+    assert.deepEqual(await readRootStatus(), { ...initialRootStatus, favorite: [parent.id, child.id],
+      collapsedNotes: noteExpansion.collapsed, collapsedFavorite: favoriteExpansion.collapsed }, '両ビューの状態とお気に入りの並べ替えを同時に保存する');
+    const writesAfterExpansion = rootStatusWrites;
+    await Promise.all([sidebarMessage(noteExpansion), favoriteMessage(favoriteExpansion)]);
+    assert.equal(rootStatusWrites, writesAfterExpansion, '展開状態が同じ再描画では.statusを再書き込みしない');
+    await sidebarMessage({ ...noteExpansion, collapsed: [123] });
+    assert.equal(rootStatusWrites, writesAfterExpansion, '不正な展開状態では保存内容を変更しない');
+    await sidebarMessage({ ...noteExpansion, collapsed: [] });
+    assert.deepEqual((await readRootStatus()).collapsedNotes, [], '全展開も空配列として保存する');
+    assert.deepEqual((await readRootStatus()).collapsedFavorite, favoriteExpansion.collapsed, 'ビューごとに独立して保存する');
+    await run('favoriteUp', child);
     const notesBeforeFavoriteReorder = noteRows.map(row => ({ id: row.id, parent: row.parent }));
     const childShortcut = favoriteSnapshot.find(row => row.id === favoriteKey(child.id));
     const childInParent = favoriteSnapshot.find(row => row.id === favoriteKey(parent.id, child.id));
@@ -1668,6 +1687,18 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       2,
       "繰り返しても破棄済みの画面には触れない",
     );
+    const savedNoteExpansion = ['音楽', '\0heading:音楽:7'];
+    const savedFavoriteExpansion = [favoriteKey('音楽')];
+    await Promise.all([
+      sidebarMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedNoteExpansion }),
+      favoriteMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedFavoriteExpansion }),
+    ]);
+    const statusBeforeRestart = await readRootStatus();
+    assert.deepEqual(statusBeforeRestart.collapsedNotes, savedNoteExpansion.slice().sort());
+    assert.deepEqual(statusBeforeRestart.collapsedFavorite, savedFavoriteExpansion);
+    // Ignore malformed entries when reading disk state on the next launch.
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...statusBeforeRestart,
+      collapsedNotes: [...savedNoteExpansion, 123], collapsedFavorite: [...savedFavoriteExpansion, false] }));
     // Opening another workspace still reads the same global notes.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;
@@ -1676,6 +1707,15 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     ];
     await activate(context);
     assert.deepEqual(favoriteRows().map(row => row.id), ['音楽'], '同じ保存先のお気に入りは再起動後も保持');
+    assert.deepEqual(favoritePostedMessages.at(-1).collapsed, savedFavoriteExpansion, 'お気に入りの展開状態を.statusから復元する');
+    let restartedNotePayload, restartedNoteMessage;
+    views.get('fnote.notes').webviewProvider.resolveWebviewView({ webview: {
+      asWebviewUri: value => value,
+      postMessage: async message => { if (message.type === 'notes') restartedNotePayload = message; },
+      onDidReceiveMessage: handler => { restartedNoteMessage = handler; return disposable(); },
+    } });
+    await restartedNoteMessage({ type: 'ready' });
+    assert.deepEqual(restartedNotePayload.collapsed, savedNoteExpansion, 'ノート一覧の展開状態を.statusから復元する');
     // Migrate the former globalState list only when .status has no favorite field.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;
@@ -1712,6 +1752,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     settings.set("storagePath", "${workspace}/.fnote");
     await activate(context);
     assert.deepEqual(favoriteRows(), [], '別の保存先にお気に入りを混在させない');
+    assert.deepEqual(favoritePostedMessages.at(-1).collapsed, [], '別の保存先へ展開状態を持ち越さない');
     assert.equal(
       views.get("fnote.notes").treeDataProvider.getChildren().length,
       0,

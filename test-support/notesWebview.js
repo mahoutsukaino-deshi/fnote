@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function setup(tagMode = false, platform = '', favoriteMode = false) {
+function setup(tagMode = false, platform = '', favoriteMode = false, savedState = {}) {
   const sent = [], states = [], timers = [], listeners = new Map(), documentListeners = new Map();
   let document;
   class Element {
@@ -34,7 +34,7 @@ function setup(tagMode = false, platform = '', favoriteMode = false) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {
     document, window: { scrollY: 0, innerHeight: 800, scrollTo() {}, scrollBy() {}, addEventListener: (type, fn) => listeners.set(type, fn) },
     navigator: { platform }, setTimeout: callback => timers.push(callback),
-    acquireVsCodeApi: () => ({ getState: () => ({}), setState: state => states.push(state), postMessage: msg => sent.push(msg) })
+    acquireVsCodeApi: () => ({ getState: () => savedState, setState: state => states.push(state), postMessage: msg => sent.push(msg) })
   });
   return { document, body, tree, sent, states, documentListeners, flushTimers: () => { for (const callback of timers.splice(0)) callback(); }, message: data => listeners.get('message')({ data }) };
 }

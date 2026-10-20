@@ -6,6 +6,7 @@
 
 - Display child notes and headings in favorite as a tree with the same icons, colors, and collapsed tag priorities as the note list. Click headings to jump to their positions in the note; attachments are excluded.
 - Add **Collapse All / Expand All** buttons to favorite, switching between them according to the expansion state just like the note list.
+- Save the note list and favorite expansion states separately in `.status` at the storage root and restore them on the next launch, including headings and Collapse All / Expand All changes.
 
 ## v0.1.11
 

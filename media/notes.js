@@ -13,6 +13,7 @@
   const dateBranches = new Set(saved.dateBranches || []);
   let dragging, drop, pointerPress, editing, editInput, incoming = false;
   let pending = [];
+  let expansionRestored = false;
   const within = (id, parent) => {
     for (let key = id; key; key = rows.find(row => row.id === key)?.parent) if (key === parent) return true;
     return false;
@@ -175,7 +176,7 @@
     }
     const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level') : ''; tree.append(rootDrop);
     select(selected, hadFocus); window.scrollTo(0, scroll);
-    send('expansionState', undefined, { allCollapsed: !hasExpandedBranch, hasBranches: rows.some(row => row.parent && rows.some(parent => parent.id === row.parent)) });
+    send('expansionState', undefined, { allCollapsed: !hasExpandedBranch, hasBranches: rows.some(row => row.parent && rows.some(parent => parent.id === row.parent)), collapsed: [...collapsed] });
   }
   function clearDrop() {
     tree.querySelectorAll('.before,.after,.inside,.over').forEach(row => row.classList.remove('before', 'after', 'inside', 'over'));
@@ -397,7 +398,13 @@
       }
       persist();
     }
-    if (message.type === 'notes') { rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render(); }
+    if (message.type === 'notes') {
+      // Disk state wins over VS Code's cached webview state on startup. Later
+      // list refreshes must not overwrite newer user interactions in this view.
+      if (!expansionRestored && Array.isArray(message.collapsed)) collapsed = new Set(message.collapsed);
+      expansionRestored = true;
+      rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render();
+    }
     if (message.type === 'expandAll') {
       collapsed.clear(); persist(); render();
     }

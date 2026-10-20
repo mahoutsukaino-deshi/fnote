@@ -48,6 +48,8 @@ Save shortcuts to frequently used notes in **favorite**. Right-click a note in t
 
 To remove a shortcut, right-click it and select **Remove from favorite**. The original note remains intact. Favorite note IDs are stored in display order in the `favorite` array of `.status` at the note storage root. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension.
 
+The note list and favorite save their expansion states separately in `collapsedNotes` and `collapsedFavorite` in `.status` at the storage root and restore them on the next launch. Headings and Collapse All / Expand All changes are included, and the two areas can be expanded and collapsed independently.
+
 ### Organize and navigate
 
 Right-click a note for **Add Child Note**, **Rename**, **Move**, and **Delete**. Drag a note to a row’s center to make it a child, to its top or bottom edge to reorder it, or below the list to move it to the top level. Moving a parent also moves its children.

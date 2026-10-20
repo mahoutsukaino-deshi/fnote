@@ -7,6 +7,10 @@ interface OutlineRow { id: string; parent: string; label: string; noteId: string
 
 export type DropPosition = 'before' | 'after' | 'inside';
 export type NoteEdit = { mode: 'create' | 'rename'; id?: string; parent?: string; name: string };
+interface ExpansionStore {
+  collapsed: readonly string[];
+  save: (collapsed: string[]) => Promise<void>;
+}
 
 export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view?: vscode.WebviewView;
@@ -16,6 +20,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private outline: OutlineRow[] = [];
   private subscriptions: vscode.Disposable[] = [];
   private shortcutRows = new Map<string, { id: string; noteId?: string; offset?: number; shortcut: boolean }>();
+  private collapsed: string[];
   constructor(
     public readonly data: vscode.TreeDataProvider<Note>,
     private readonly extensionUri: vscode.Uri,
@@ -28,7 +33,10 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     private readonly attachmentAppearance?: (attachment: Attachment) => { mark: string; color?: string },
     private readonly onEdit?: (edit: NoteEdit) => Promise<void>,
     private readonly shortcutIds?: () => readonly string[],
-  ) {}
+    private readonly expansionStore?: ExpansionStore,
+  ) {
+    this.collapsed = [...(expansionStore?.collapsed ?? [])];
+  }
   private pendingEdit?: Omit<NoteEdit, 'name'>;
   private webviewReady = false;
   get selection(): Note[] {
@@ -130,7 +138,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
         });
       });
     }
-    await this.view.webview.postMessage({ type: 'notes', rows: displayRows, selected: this.selectedId, active: this.activeId });
+    await this.view.webview.postMessage({ type: 'notes', rows: displayRows, selected: this.selectedId, active: this.activeId,
+      ...(this.expansionStore ? { collapsed: this.collapsed } : {}) });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -151,6 +160,14 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           const prefix = this.shortcutIds ? 'fnote.favorite' : this.tagMode ? 'fnote.tags' : 'fnote.notes';
           await vscode.commands.executeCommand('setContext', `${prefix}AllCollapsed`, message.allCollapsed);
           await vscode.commands.executeCommand('setContext', `${prefix}HasBranches`, message.hasBranches);
+          if (this.expansionStore && 'collapsed' in message && Array.isArray(message.collapsed)
+            && message.collapsed.every((id): id is string => typeof id === 'string')) {
+            const collapsed = [...new Set(message.collapsed)].sort();
+            if (JSON.stringify(collapsed) !== JSON.stringify([...this.collapsed].sort())) {
+              this.collapsed = collapsed;
+              await this.expansionStore.save(collapsed);
+            }
+          }
           return;
         }
         if (this.shortcutIds && message.type !== 'ready') {

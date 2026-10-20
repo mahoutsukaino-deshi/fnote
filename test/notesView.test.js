@@ -4,6 +4,40 @@ const assert = require('node:assert/strict');
 
 const { setup } = require('../test-support/notesWebview');
 
+for (const favoriteMode of [false, true]) test(`${favoriteMode ? 'お気に入り' : 'ノート一覧'}: 保存した展開状態を復元し、再スキャンでは操作を巻き戻さない`, () => {
+  const view = setup(false, '', favoriteMode, { collapsed: ['other'] });
+  const rows = [
+    { id: 'parent', parent: '', label: '親', shortcut: true },
+    { id: 'heading', parent: 'parent', label: '見出し', noteId: 'note' },
+    { id: 'subheading', parent: 'heading', label: '小見出し', noteId: 'note' },
+    { id: 'other', parent: '', label: '別', shortcut: true },
+    { id: 'child', parent: 'other', label: '子' },
+  ];
+  const state = () => view.sent.filter(message => message.type === 'expansionState').at(-1);
+  const visible = () => view.tree.querySelectorAll('.row').map(row => row.dataset.id);
+  // A webview can become ready before the initial file scan finishes.
+  view.message({ type: 'notes', rows: [], collapsed: ['parent', 'heading'] });
+  view.message({ type: 'notes', rows, collapsed: ['parent', 'heading'] });
+  assert.deepEqual(visible(), ['parent', 'other', 'child']);
+  assert.deepEqual(Array.from(state().collapsed), ['parent', 'heading']);
+  view.tree.children[0].children[0].onclick({ stopPropagation() {} });
+  assert.deepEqual(visible(), ['parent', 'heading', 'other', 'child']);
+  assert.deepEqual(Array.from(state().collapsed), ['heading']);
+  view.message({ type: 'notes', rows, collapsed: ['parent', 'heading'] });
+  assert.deepEqual(visible(), ['parent', 'heading', 'other', 'child']);
+  const restarted = setup(false, '', favoriteMode);
+  restarted.message({ type: 'notes', rows, collapsed: state().collapsed });
+  assert.deepEqual(restarted.tree.querySelectorAll('.row').map(row => row.dataset.id), visible());
+  restarted.message({ type: 'collapseAll' });
+  const collapsed = restarted.sent.filter(message => message.type === 'expansionState').at(-1).collapsed;
+  assert.deepEqual(Array.from(collapsed).sort(), ['heading', 'other', 'parent']);
+  restarted.message({ type: 'expandAll' });
+  assert.deepEqual(Array.from(restarted.sent.at(-1).collapsed), []);
+  const allOpen = setup(false, '', favoriteMode, { collapsed });
+  allOpen.message({ type: 'notes', rows, collapsed: [] });
+  assert.equal(allOpen.tree.querySelectorAll('.row').length, 5, '空配列も復元し、全展開を保持する');
+});
+
 test('after the host delivers a Shift-drag, webview events do not reactivate its drop overlay', async () => {
   const { tree, body, sent, message, documentListeners } = setup();
   message({ type: 'notes', rows: [{ id: 'note', parent: '', label: 'Note' }] });

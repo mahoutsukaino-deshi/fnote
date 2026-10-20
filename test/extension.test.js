@@ -32,6 +32,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     panelReveals = [],
     receiveMessage,
     configurationChanged,
+    favoriteMessage,
+    favoriteSnapshot = [],
+    favoritePostedMessages = [],
     documentSaved,
     selectionChanged,
     shown,
@@ -224,6 +227,17 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
           treeDataProvider: provider.data,
           webviewProvider: provider,
         });
+        if (id === 'fnote.favorite') {
+          favoriteSnapshot = [];
+          provider.resolveWebviewView({ webview: {
+            asWebviewUri: value => value,
+            postMessage: async message => {
+              favoritePostedMessages.push(message);
+              if (message.type === 'notes') favoriteSnapshot = message.rows;
+            },
+            onDidReceiveMessage: handler => { favoriteMessage = handler; return disposable(); },
+          } });
+        }
         return disposable();
       },
       createTextEditorDecorationType: (options) => ({
@@ -607,20 +621,26 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     });
     assert.doesNotMatch(sidebarHtml, /attachment-hint|Attach files: hold Shift and drop onto a note\./);
     await sidebarMessage({ type: "ready" });
-    const favoriteView = views.get('fnote.favorite');
-    const favoriteProvider = favoriteView.treeDataProvider;
-    const favoriteRows = () => favoriteProvider.getChildren().map(note => ({ id: note.id, label: favoriteProvider.getTreeItem(note).label }));
-    const nativeTransfer = id => {
-      const transfer = new Map();
-      favoriteView.dragAndDropController.handleDrag([{ id }], transfer);
-      return transfer;
-    };
-    const favoriteReorder = async (id, target) => {
-      await favoriteView.dragAndDropController.handleDrop(target === undefined ? undefined : { id: target }, nativeTransfer(id));
-    };
-    assert.deepEqual(favoriteView.dragAndDropController.dropMimeTypes, ['application/vnd.fnote.favorite']);
-    assert.equal(views.get('fnote.favorite').webviewProvider, undefined, 'favoriteはネイティブのドロップ先を使う');
+    const { setup } = require('../test-support/notesWebview');
+    const favoriteKey = (root, id = root) => JSON.stringify([root, id]);
+    const favoriteRows = () => favoriteSnapshot.filter(row => row.shortcut).map(row => ({ id: row.sourceId, label: row.label }));
+    const favoriteReorder = (id, target) => favoriteMessage({ type: 'drop', id: favoriteKey(id), target: target === undefined ? undefined : favoriteKey(target), position: 'before' });
     assert.deepEqual(favoriteRows(), []);
+    const notesAllCollapsed = contexts.get('fnote.notesAllCollapsed');
+    const tagsAllCollapsed = contexts.get('fnote.tagsAllCollapsed');
+    await favoriteMessage({ type: 'expansionState', allCollapsed: false, hasBranches: true });
+    assert.equal(contexts.get('fnote.favoriteAllCollapsed'), false);
+    assert.equal(contexts.get('fnote.favoriteHasBranches'), true);
+    await run('collapseFavorite');
+    assert.equal(favoritePostedMessages.at(-1).type, 'collapseAll');
+    await favoriteMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true });
+    assert.equal(contexts.get('fnote.favoriteAllCollapsed'), true);
+    await run('expandFavorite');
+    assert.equal(favoritePostedMessages.at(-1).type, 'expandAll');
+    await favoriteMessage({ type: 'expansionState', allCollapsed: true, hasBranches: false });
+    assert.equal(contexts.get('fnote.favoriteHasBranches'), false);
+    assert.equal(contexts.get('fnote.notesAllCollapsed'), notesAllCollapsed);
+    assert.equal(contexts.get('fnote.tagsAllCollapsed'), tagsAllCollapsed);
     await sidebarMessage({ type: 'command', command: 'addFavorite', id: child.id });
     await run('addFavorite', parent);
     await run('addFavorite', child);
@@ -629,96 +649,51 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const favoriteStateKey = `favorite:file://${path.join(temp, '.fnote')}`;
     const readRootStatus = async () => JSON.parse(await fs.readFile(rootStatusPath, 'utf8'));
     const initialRootStatus = await readRootStatus();
-    assert.deepEqual(initialRootStatus.favorite, [child.id, parent.id], '.statusの配列順でお気に入りを保存する');
+    assert.deepEqual(initialRootStatus.favorite, [child.id, parent.id]);
     assert.equal(savedState.get(favoriteStateKey), undefined);
     const notesBeforeFavoriteReorder = noteRows.map(row => ({ id: row.id, parent: row.parent }));
-    // Favorites can still be reordered within the native list.
-    const nativeDrag = nativeTransfer(parent.id);
-    await favoriteView.dragAndDropController.handleDrop(child, nativeDrag);
-    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
-    assert.deepEqual((await readRootStatus()).favorite, [parent.id, child.id]);
-
-    // Note-list drags cannot register favorites, even when dropped on an empty list.
-    const { setup } = require('../test-support/notesWebview');
-    for (const selected of [undefined, child.id]) for (const shiftKey of [false, true]) {
-      const source = setup();
-      source.message({ type: 'notes', rows: noteRows, selected });
-      const row = source.tree.children.find(row => row.dataset.id === parent.id);
-      const data = new Map();
-      row.onmousedown({ button: 0 });
-      row.ondragstart({ shiftKey, dataTransfer: { setData: (type, value) => data.set(type, value) } });
-      await run('removeFavorite', parent);
-      const beforeDrop = await readRootStatus();
-      await favoriteView.dragAndDropController.handleDrop(undefined,
-        new Map([...data].map(([type, value]) => [type, new api.DataTransferItem(value)])));
-      assert.deepEqual(await readRootStatus(), beforeDrop, 'ノート一覧からのドロップは登録しない');
-      source.documentListeners.get('dragend')();
+    const childShortcut = favoriteSnapshot.find(row => row.id === favoriteKey(child.id));
+    const childInParent = favoriteSnapshot.find(row => row.id === favoriteKey(parent.id, child.id));
+    assert.ok(childInParent, '親ノート配下の子ノートも表示する');
+    assert.equal(childInParent.parent, favoriteKey(parent.id));
+    assert.notEqual(childInParent.id, childShortcut.id, '同じノートを別のツリー内でも独立表示する');
+    assert.equal(childInParent.shortcut, false);
+    assert.deepEqual(childInParent.appearance, childShortcut.appearance);
+    await favoriteMessage({ type: 'open', id: childInParent.id });
+    assert.ok(shown.doc.uri.fsPath.endsWith(path.join(child.id, 'index.md')));
+    for (const command of ['removeFavorite', 'favoriteUp', 'favoriteDown', 'delete', 'rename', 'addChild']) {
+      await favoriteMessage({ type: 'command', command, id: childInParent.id });
     }
-    await run('removeFavorite', child);
-    await favoriteView.dragAndDropController.handleDrop(undefined,
-      new Map([['application/vnd.fnote.note', new api.DataTransferItem(JSON.stringify({ id: parent.id }))]]));
-    assert.deepEqual(favoriteRows(), [], '空のfavoriteでも登録しない');
-    await run('addFavorite', parent);
-    await run('addFavorite', child);
-    let favoriteRefreshes = 0;
-    const favoriteRefreshListener = favoriteProvider.onDidChangeTreeData(() => favoriteRefreshes++);
-    await run('refresh');
-    assert.equal(favoriteRefreshes, 0, '無関係な再スキャンでドラッグ先の一覧を再構築しない');
-    favoriteRefreshListener.dispose();
+    await favoriteMessage({ type: 'drop', id: childInParent.id, target: childShortcut.id, position: 'before' });
+    await favoriteMessage({ type: 'drop', id: childShortcut.id, target: childInParent.id, position: 'before' });
+    assert.deepEqual((await readRootStatus()).favorite, [child.id, parent.id], '展開された子はお気に入りの操作対象にしない');
+    await favoriteReorder(parent.id, child.id);
     assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
+    const beforeRefresh = favoriteSnapshot;
+    await run('refresh');
+    assert.deepEqual(favoriteSnapshot, beforeRefresh);
     await run('favoriteDown', parent);
     assert.deepEqual(favoriteRows().map(row => row.id), [child.id, parent.id]);
     await favoriteReorder(child.id);
     assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id], '空白へのドロップで末尾へ移動する');
     for (const [id, target] of [[child.id, child.id], ['missing', child.id], [parent.id, 'missing']]) await favoriteReorder(id, target);
-    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['application/vnd.fnote.note', new api.DataTransferItem('invalid json')]]));
-    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['application/vnd.fnote.note', new api.DataTransferItem(JSON.stringify({ id: 123 }))]]));
-    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['text/plain', new api.DataTransferItem(child.id)]]));
-    await favoriteView.dragAndDropController.handleDrop(undefined, new Map([['text/uri-list', new api.DataTransferItem('file:///tmp/index.md')]]));
-    await sidebarMessage({ type: 'shortcutDrop', id: child.id });
-    await sidebarMessage({ type: 'shortcutDrop', uri: 'fnote-drag://old/favorite/old-id' });
-    assert.deepEqual((await readRootStatus()).favorite, [parent.id, child.id], '不正なドロップで順序や登録内容を変更しない');
-    assert.deepEqual((await readRootStatus()).order, initialRootStatus.order);
-    assert.deepEqual(noteRows.map(row => ({ id: row.id, parent: row.parent })), notesBeforeFavoriteReorder);
-    favoriteView.selection = [child];
-    await run('favoriteUp');
+    await favoriteMessage({ type: 'drop', id: favoriteKey(parent.id), target: 123, position: 'before' });
+    assert.deepEqual((await readRootStatus()).favorite, [parent.id, child.id]);
+    await favoriteMessage({ type: 'select', id: favoriteKey(child.id) });
+    await run('favoriteUp', { webviewId: 'fnote.favorite', webviewSection: 'favorite' });
     assert.deepEqual((await readRootStatus()).favorite, [child.id, parent.id]);
     await fs.writeFile(rootStatusPath, JSON.stringify({ ...initialRootStatus, favorite: [parent.id, child.id] }));
     await run('refresh');
-    assert.deepEqual(favoriteRows().map(row => row.id), [parent.id, child.id]);
-    for (const note of favoriteProvider.getChildren()) {
-      assert.deepEqual(favoriteProvider.getChildren(note), [], 'favoriteは階層を展開しない');
-      const item = favoriteProvider.getTreeItem(note);
-      assert.equal(item.collapsibleState, api.TreeItemCollapsibleState.None);
-      assert.equal(item.tooltip, note.id);
-      assert.equal(item.contextValue, 'favorite');
-      assert.equal(item.resourceUri, undefined, '外部へのドラッグ用URIを公開しない');
-      assert.deepEqual(item.command.arguments, [note.id, undefined, true]);
-    }
     const previousTagStyles = settings.get('tagStyles');
     settings.set('tagStyles', [{ tag: 'TODO', mark: '$(book)', markColor: '#123456' }]);
-    const nativeIcon = favoriteProvider.getTreeItem(child).iconPath.dark.toString();
-    assert.match(Buffer.from(nativeIcon.split(',')[1], 'base64').toString(), /fill="#123456"/);
+    await run('refresh');
+    assert.deepEqual(favoriteSnapshot.find(row => row.id === favoriteKey(child.id)).appearance, { mark: '$(book)', color: '#123456' });
     if (previousTagStyles === undefined) settings.delete('tagStyles'); else settings.set('tagStyles', previousTagStyles);
-    await favoriteReorder('missing');
-    assert.equal(favoriteRows().length, 2);
-    favoriteView.selection = [child];
-    await run('removeFavorite');
+    await favoriteMessage({ type: 'command', command: 'removeFavorite', id: favoriteKey(child.id) });
     assert.deepEqual(favoriteRows().map(row => row.id), [parent.id]);
     await run('removeFavorite', parent);
     assert.deepEqual(favoriteRows(), []);
-    await run('addFavorite', child);
-    const beforeFavoriteRemoval = noteRows.map(row => row.id);
-    const destination = setup();
-    destination.message({ type: 'notes', rows: noteRows, selected: parent.id });
-    const nativeData = nativeTransfer(child.id);
-    await destination.tree.handlers.drop({ target: destination.tree, preventDefault() {}, stopPropagation() {},
-      dataTransfer: { types: [...nativeData.keys()], getData: type => nativeData.get(type)?.value ?? '' } });
-    assert.ok(!destination.sent.some(message => ['shortcutDrop', 'drop', 'attachmentDrop'].includes(message.type)));
-    assert.deepEqual((await readRootStatus()).favorite, [child.id], 'ノート一覧へドラッグしても解除しない');
-    await run('removeFavorite', child);
-    assert.deepEqual(favoriteRows(), []);
-    assert.deepEqual(noteRows.map(row => row.id), beforeFavoriteRemoval);
+    assert.deepEqual(noteRows.map(row => ({ id: row.id, parent: row.parent })), notesBeforeFavoriteReorder);
     assert.ok(await fs.stat(path.join(temp, '.fnote', child.id, 'index.md')));
     assert.deepEqual((await readRootStatus()).favorite, []);
     assert.deepEqual((await readRootStatus()).order, initialRootStatus.order);
@@ -745,6 +720,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(noteRows.find((row) => row.id === "音楽").archived, true);
     assert.deepEqual(noteRows.find((row) => row.id === "音楽").appearance, { mark: "$(archive)", color: "#808080" });
     assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(archive)", color: "#808080" });
+    await run('addFavorite', parent);
+    assert.deepEqual(favoriteSnapshot.find(row => row.sourceId === parent.id).appearance, { mark: '$(archive)', color: '#808080' });
+    assert.deepEqual(favoriteSnapshot.find(row => row.sourceId === child.id).appearance, { mark: '$(archive)', color: '#808080' });
+    await run('removeFavorite', parent);
     assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")).archived, true);
     assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")).archived, true);
     assert.equal(tagRows.some((row) => row.id === "TODO"), false);
@@ -865,6 +844,20 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       ["音楽", outline[0].id, "音楽", "音楽"],
     );
     assert.notEqual(outline[0].id, outline[2].id);
+    await run('addFavorite', parent);
+    await run('addFavorite', child);
+    assert.equal(favoriteSnapshot.some(row => row.attachment), false, 'お気に入りには添付ファイルを表示しない');
+    for (const source of noteRows.filter(row => !row.attachment && (row.id === parent.id || row.parent === parent.id || row.noteId === parent.id))) {
+      const row = favoriteSnapshot.find(row => row.id === favoriteKey(parent.id, source.id));
+      assert.ok(row);
+      assert.equal(row.label, source.label);
+      assert.deepEqual(row.appearance, source.appearance);
+      assert.deepEqual(row.collapsedAppearance, source.collapsedAppearance);
+      assert.deepEqual(row.outlineMark, source.outlineMark);
+    }
+    assert.equal(favoriteSnapshot.find(row => row.id === favoriteKey(parent.id, outline[1].id)).parent, favoriteKey(parent.id, outline[0].id));
+    await favoriteMessage({ type: 'open', id: favoriteKey(parent.id, outline[1].id) });
+    assert.equal(shown.options.selection.start.offset, outlineText.indexOf('#### 小節'));
     await sidebarMessage({ type: "open", id: outline[1].id });
     assert.equal(
       shown.options.selection.start.offset,
@@ -874,6 +867,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     settings.set("headingMarkColor", "#123456");
     await run("refresh");
     assert.deepEqual(noteRows.find((row) => row.noteId === "音楽").outlineMark, { mark: "$(symbol-number)", color: "#123456" });
+    assert.deepEqual(favoriteSnapshot.find(row => row.sourceId === outline[0].id).outlineMark, { mark: '$(symbol-number)', color: '#123456' });
+    await run('removeFavorite', parent);
+    await run('removeFavorite', child);
     await sidebarMessage({
       type: "command",
       id: outline[0].id,
@@ -1679,7 +1675,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       { uri: uri(path.join(temp, "another-workspace")) },
     ];
     await activate(context);
-    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren().map(note => note.id), ['音楽'], '同じ保存先のお気に入りは再起動後も保持');
+    assert.deepEqual(favoriteRows().map(row => row.id), ['音楽'], '同じ保存先のお気に入りは再起動後も保持');
     // Migrate the former globalState list only when .status has no favorite field.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;
@@ -1691,14 +1687,14 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual((await readRootStatus()).favorite, ['音楽']);
     assert.deepEqual((await readRootStatus()).order, beforeFavoriteMigration.order);
     assert.equal(savedState.get(favoriteStateKey), undefined, '移行成功後に古いglobalStateを削除する');
-    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren().map(note => note.id), ['音楽']);
+    assert.deepEqual(favoriteRows().map(row => row.id), ['音楽']);
     // An explicitly empty disk list wins over stale globalState data.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;
     await fs.writeFile(rootStatusPath, JSON.stringify({ ...await readRootStatus(), favorite: [] }));
     savedState.set(favoriteStateKey, ['音楽']);
     await activate(context);
-    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren(), []);
+    assert.deepEqual(favoriteRows(), []);
     assert.deepEqual((await readRootStatus()).favorite, []);
     assert.equal(savedState.get(favoriteStateKey), undefined);
 
@@ -1715,7 +1711,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     api.workspace.workspaceFolders = [{ uri: uri(workspaceRoot) }];
     settings.set("storagePath", "${workspace}/.fnote");
     await activate(context);
-    assert.deepEqual(views.get('fnote.favorite').treeDataProvider.getChildren(), [], '別の保存先にお気に入りを混在させない');
+    assert.deepEqual(favoriteRows(), [], '別の保存先にお気に入りを混在させない');
     assert.equal(
       views.get("fnote.notes").treeDataProvider.getChildren().length,
       0,

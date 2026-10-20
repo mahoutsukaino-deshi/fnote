@@ -2,7 +2,12 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## v0.1.11 (Unreleased)
+## v0.1.12 (Unreleased)
+
+- Display child notes and headings in favorite as a tree with the same icons, colors, and collapsed tag priorities as the note list. Click headings to jump to their positions in the note; attachments are excluded.
+- Add **Collapse All / Expand All** buttons to favorite, switching between them according to the expansion state just like the note list.
+
+## v0.1.11
 
 - Resize the extension icon to 1024×1024 pixels to fix Marketplace publishing errors.
 - Shorten the note and tag view names to `List` and `Tags`.

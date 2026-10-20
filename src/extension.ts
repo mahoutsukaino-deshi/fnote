@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { NotesView } from './notesView';
-import { FavoriteView } from './favoriteView';
 import type { DropPosition, NoteEdit } from './notesView';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -285,6 +284,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   };
   const tagsInSubtree = (note: Note) => notes.filter(child => within(child.id, note.id)).flatMap(child => child.tags);
   const noteAppearanceInSubtree = (note: Note) => appearance({ ...note, tags: tagsInSubtree(note) });
+  const outlineMark = () => {
+    const mark = linkMark(config().get<string>('headingMark', '#'));
+    return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('headingMarkColor', '#808080') || undefined };
+  };
   const marks = (n: Note) => noteAppearanceInSubtree(n).mark;
   const children = (parent?: Note) => notes.filter(n => n.parent === (parent?.id || ''));
   const provider: vscode.TreeDataProvider<Note> = {
@@ -306,21 +309,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }, false, note => {
     const mark = marks(note);
     return `${mark ? `${mark} ` : ''}${note.name}`;
-  }, note => noteAppearanceInSubtree(note), headingAppearance, () => {
-    const mark = linkMark(config().get<string>('headingMark', '#'));
-    return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('headingMarkColor', '#808080') || undefined };
-  }, () => {
+  }, note => noteAppearanceInSubtree(note), headingAppearance, outlineMark, () => {
     const mark = linkMark(config().get<string>('attachmentMark', '$(attach)'));
     return { mark: mark.icon ? `$(${mark.icon})` : mark.text, color: config().get<string>('attachmentColor', '') || undefined };
   }, applyNoteEdit);
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
-  const favorite = new FavoriteView((id, target) => reorderFavorite(id, target, 'before'), noteAppearanceInSubtree);
-  function favoriteNotes(): Note[] {
-    return favoriteIds.flatMap(id => {
-      const note = notes.find(note => note.id === id);
-      return note ? [note] : [];
-    });
-  }
+  const favorite = new NotesView(provider, context.extensionUri,
+    (id, target) => reorderFavorite(id, target, 'before'), false, undefined,
+    note => noteAppearanceInSubtree(note), headingAppearance, outlineMark, undefined, undefined, () => favoriteIds);
+  context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.favorite', favorite));
   function changeFavorites(change: (ids: string[]) => string[]): Promise<void> {
     const operation = favoriteQueue.catch(() => {}).then(async () => {
       let next: string[] = [];
@@ -331,7 +328,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           ? { favorite: next } : undefined;
       });
       favoriteIds = next;
-      await favorite.update(favoriteNotes());
+      await favorite.update(notes);
     });
     favoriteQueue = operation;
     return operation;
@@ -1086,8 +1083,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   command('expandNotes', () => tree.expandAll());
   command('expandTags', () => tags.expandAll());
+  command('expandFavorite', () => favorite.expandAll());
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
+  command('collapseFavorite', () => favorite.collapseAll());
   command('toggleDateTagSort', () => {
     const index = dateTagSortModes.indexOf(currentDateTagSort());
     dateTagSortOverride = dateTagSortModes[(index + 1) % dateTagSortModes.length];
@@ -1100,7 +1099,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (note) return changeFavorites(ids => ids.filter(id => id !== note.id));
   });
   for (const [name, delta] of [['favoriteUp', -1], ['favoriteDown', 1]] as const) command(name, async (n?: Note) => {
-    const note = n ?? favorite.selection[0];
+    const note = notes.find(note => note.id === n?.id) ?? favorite.selection[0];
     if (!note) return;
     const index = favoriteIds.indexOf(note.id), target = favoriteIds[index + delta];
     if (index >= 0 && target !== undefined) await reorderFavorite(note.id, target, delta < 0 ? 'before' : 'after');

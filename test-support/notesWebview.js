@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-function setup(tagMode = false, platform = '') {
+function setup(tagMode = false, platform = '', favoriteMode = false) {
   const sent = [], states = [], timers = [], listeners = new Map(), documentListeners = new Map();
   let document;
   class Element {
@@ -28,6 +28,7 @@ function setup(tagMode = false, platform = '') {
   const tree = new Element(), menu = new Element(), body = new Element();
   body.append(tree);
   body.dataset.tags = String(tagMode);
+  body.dataset.favorites = String(favoriteMode);
   document = { body, activeElement: body, getElementById: id => id === 'tree' ? tree : menu,
     createElement: () => new Element(), addEventListener: (type, fn) => documentListeners.set(type, fn) };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../media/notes.js'), 'utf8'), {

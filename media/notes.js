@@ -2,6 +2,7 @@
   const api = acquireVsCodeApi();
   const tree = document.getElementById('tree');
   const tagMode = document.body.dataset.tags === 'true';
+  const favoriteMode = document.body.dataset.favorites === 'true';
   const noteMime = 'application/vnd.fnote.note';
   const favoriteMime = 'application/vnd.fnote.favorite';
   const internalTypes = [noteMime, favoriteMime, 'application/vnd.fnote.attachment', 'application/vnd.fnote.tag'];
@@ -99,8 +100,8 @@
         const row = document.createElement('div'); row.className = 'row'; row.classList.toggle('active', note.id === active); row.dataset.id = note.id;
         row.dataset.outline = String(Boolean(note.noteId));
         row.dataset.attachment = String(Boolean(note.attachment));
-        row.draggable = !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
-        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.id;
+        row.draggable = favoriteMode ? Boolean(note.shortcut) : !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
+        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.sourceId ?? note.id;
         if (hasChildren && !collapsed.has(note.id)) hasExpandedBranch = true;
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
         const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1;
@@ -145,7 +146,7 @@
           finishPointer();
         };
         row.dataset.vscodeContext = JSON.stringify({
-          webviewSection: note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
+          webviewSection: favoriteMode ? (note.shortcut ? 'favorite' : 'favoriteChild') : note.noteId ? 'outline' : note.attachment ? 'attachment' : 'note',
           'fnote.noteArchived': Boolean(note.archived),
           preventDefaultContextMenuItems: true,
         });
@@ -155,12 +156,12 @@
           send('select', note.id);
         };
         row.ondragstart = e => {
-          if (note.noteId) { e.preventDefault(); return; }
+          if (note.noteId || (favoriteMode && !note.shortcut)) { e.preventDefault(); return; }
           dragging = note.id;
           e.dataTransfer.effectAllowed = 'move';
-          const mime = tagMode ? 'application/vnd.fnote.tag' : note.attachment ? 'application/vnd.fnote.attachment' : noteMime;
+          const mime = favoriteMode ? favoriteMime : tagMode ? 'application/vnd.fnote.tag' : note.attachment ? 'application/vnd.fnote.attachment' : noteMime;
           e.dataTransfer.setData(mime, JSON.stringify({ id: note.id }));
-          e.dataTransfer.setData('text/plain', note.id);
+          if (!favoriteMode) e.dataTransfer.setData('text/plain', note.id);
           select(note.id, true);
           send('select', note.id);
         };
@@ -170,7 +171,7 @@
     }
     branch('', 0);
     if (!rows.length) {
-      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = tagMode ? 'Add tags to your notes to see them here.' : 'Click + to add a note.'; tree.append(hint);
+      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = favoriteMode ? 'Right-click a note in List and select Add to favorite.' : tagMode ? 'Add tags to your notes to see them here.' : 'Click + to add a note.'; tree.append(hint);
     }
     const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level') : ''; tree.append(rootDrop);
     select(selected, hadFocus); window.scrollTo(0, scroll);
@@ -185,6 +186,14 @@
     if (!dragging) return;
     const row = e.target.closest('.row');
     const source = rows.find(item => item.id === dragging);
+    if (favoriteMode) {
+      if (!source?.shortcut) return;
+      const target = row && rows.find(item => item.id === row.dataset.id);
+      if (row && (!target?.shortcut || target.id === dragging)) return;
+      drop = { target: target?.id, position: 'before' };
+      (row || document.getElementById('root-drop')).classList.add(row ? 'before' : 'over');
+      return;
+    }
     if (!row) {
       if (source?.attachment) return;
       drop = { target: undefined, position: 'inside' };
@@ -208,7 +217,7 @@
     indicator.classList.add(position);
   }
   function attachmentTarget(event) {
-    if (tagMode || isInternalDrag(event)) return;
+    if (tagMode || favoriteMode || isInternalDrag(event)) return;
     const row = event.target.closest('.row');
     if (!row || row.dataset.outline === 'true') return;
     let id = row.dataset.id;
@@ -344,7 +353,7 @@
     if (next) { e.preventDefault(); select(next.dataset.id, true); send('select', next.dataset.id); }
     const newNoteKey = !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'n'
       && (isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey);
-    if (!tagMode && newNoteKey) {
+    if (!tagMode && !favoriteMode && newNoteKey) {
       e.preventDefault(); e.stopPropagation();
       if (current && !current.noteId && !current.attachment) send('command', current.id, { command: 'addChild' });
       else if (current?.attachment) send('command', current.id, { command: 'add' });
@@ -355,11 +364,12 @@
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActive(current.id); send(current.attachment ? 'openAttachment' : 'open', current.id); }
     if (e.key === 'ArrowLeft') { e.preventDefault(); if (!collapsed.has(current.id) && rows.some(row => row.parent === current.id)) { collapsed.add(current.id); persist(); render(); select(current.id, true); } else if (current.parent) { select(current.parent, true); send('select', current.parent); } }
     if (e.key === 'ArrowRight') { e.preventDefault(); collapsed.delete(current.id); persist(); render(); select(current.id, true); }
-    if (!tagMode && !current.noteId && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
+    if (!tagMode && !favoriteMode && !current.noteId && e.key === 'F2') { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'rename' }); }
     const deleteKey = isMac
       ? e.metaKey && !e.ctrlKey && e.key === 'Backspace'
       : !e.metaKey && !e.ctrlKey && e.key === 'Delete';
-    if (!tagMode && !current.noteId && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' }); }
+    if (favoriteMode && current.shortcut && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'removeFavorite' }); }
+    if (!tagMode && !favoriteMode && !current.noteId && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' }); }
     if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) {
       e.preventDefault();
       const rect = visible[index].getBoundingClientRect();

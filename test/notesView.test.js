@@ -204,8 +204,8 @@ test('tag view never accepts attachment drops', async () => {
   assert.ok(!sent.some(item => item.type === 'attachmentDrop'));
 });
 
-for (const tagMode of [false, true]) test(`${tagMode ? 'タグ' : 'ノート'}一覧: 全閉時のみ展開ボタンへ切り替える`, () => {
-  const { tree, sent, message } = setup(tagMode);
+for (const mode of ['notes', 'tags', 'favorite']) test(`${mode}一覧: 全閉時のみ展開ボタンへ切り替える`, () => {
+  const { tree, sent, message } = setup(mode === 'tags', '', mode === 'favorite');
   const state = () => sent.filter(item => item.type === 'expansionState').at(-1);
   const rows = [
     { id: 'parent', parent: '', label: '親' },

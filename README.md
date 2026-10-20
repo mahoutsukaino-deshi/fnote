@@ -44,9 +44,11 @@ For keyword search, click the magnifying glass in **List**. It searches note nam
 
 ### Favorite notes
 
-Save shortcuts to frequently used notes in **favorite**. Right-click a note in the note list and select **Add to favorite**. This flat list shows the same tag icons as the note list without expanding children or headings. Within **favorite**, drop onto another row to place a shortcut before it, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
+Save shortcuts to frequently used notes in **favorite**. Right-click a note in the note list and select **Add to favorite**. Expand child notes and headings in a tree, using the same icons, colors, and collapsed tag priorities as the note list. Click a heading to jump to its position in the note. Attachments are hidden. A parent and child saved as separate favorites each have their own tree. Within **favorite**, drop a shortcut onto another shortcut to place it before that item, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
 
 To remove a shortcut, right-click it and select **Remove from favorite**. The original note remains intact. Favorite note IDs are stored in display order in the `favorite` array of `.status` at the note storage root. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension.
+
+The note list and favorite save their expansion states separately in `collapsedNotes` and `collapsedFavorite` in `.status` at the storage root and restore them on the next launch. Headings and Collapse All / Expand All changes are included, and the two areas can be expanded and collapsed independently.
 
 ### Organize and navigate
 

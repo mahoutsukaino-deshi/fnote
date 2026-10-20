@@ -7,6 +7,10 @@ interface OutlineRow { id: string; parent: string; label: string; noteId: string
 
 export type DropPosition = 'before' | 'after' | 'inside';
 export type NoteEdit = { mode: 'create' | 'rename'; id?: string; parent?: string; name: string };
+interface ExpansionStore {
+  collapsed: readonly string[];
+  save: (collapsed: string[]) => Promise<void>;
+}
 
 export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable {
   private view?: vscode.WebviewView;
@@ -15,6 +19,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private activeId?: string;
   private outline: OutlineRow[] = [];
   private subscriptions: vscode.Disposable[] = [];
+  private shortcutRows = new Map<string, { id: string; noteId?: string; offset?: number; shortcut: boolean }>();
+  private collapsed: string[];
   constructor(
     public readonly data: vscode.TreeDataProvider<Note>,
     private readonly extensionUri: vscode.Uri,
@@ -25,16 +31,24 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     private readonly headingAppearance?: (tags: readonly TagMatch[]) => MarkAppearance | undefined,
     private readonly outlineMark?: () => MarkAppearance,
     private readonly attachmentAppearance?: (attachment: Attachment) => { mark: string; color?: string },
-    private readonly onEdit?: (edit: NoteEdit) => Promise<void>
-  ) {}
+    private readonly onEdit?: (edit: NoteEdit) => Promise<void>,
+    private readonly shortcutIds?: () => readonly string[],
+    private readonly expansionStore?: ExpansionStore,
+  ) {
+    this.collapsed = [...(expansionStore?.collapsed ?? [])];
+  }
   private pendingEdit?: Omit<NoteEdit, 'name'>;
   private webviewReady = false;
-  get selection(): Note[] { return this.current.filter(note => note.id === this.selectedId); }
+  get selection(): Note[] {
+    const row = this.shortcutRows.get(this.selectedId ?? '');
+    const id = this.shortcutIds ? (row?.shortcut ? row.id : undefined) : this.selectedId;
+    return this.current.filter(note => note.id === id);
+  }
   get selectedAttachmentId(): string | undefined {
     return this.current.flatMap(note => note.attachments ?? []).find(attachment => attachment.id === this.selectedId)?.id;
   }
   private async updateArchiveContext(note?: Note): Promise<void> {
-    if (!this.tagMode) await vscode.commands.executeCommand('setContext', 'fnote.noteArchived', Boolean(note?.archived));
+    if (!this.tagMode && !this.shortcutIds) await vscode.commands.executeCommand('setContext', 'fnote.noteArchived', Boolean(note?.archived));
   }
   async collapseAll(): Promise<void> {
     await this.view?.webview.postMessage({ type: 'collapseAll' });
@@ -65,6 +79,8 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   async update(notes: Note[]): Promise<void> {
     this.current = notes;
     await this.updateArchiveContext(this.current.find(note => note.id === this.selectedId));
+    const shortcutIds = this.shortcutIds?.();
+    if (shortcutIds) notes = notes.filter(note => shortcutIds.some(root => note.id === root || note.id.startsWith(`${root}/`)));
     const attachments = notes.flatMap(note => note.attachments ?? []);
     this.outline = this.tagMode ? [] : notes.flatMap(note => {
       const rows: OutlineRow[] = [];
@@ -90,7 +106,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
       }
       return rows;
     });
-    const attachmentRows = this.tagMode ? [] : attachments.map(attachment => ({
+    const attachmentRows = this.tagMode || this.shortcutIds ? [] : attachments.map(attachment => ({
       id: attachment.id,
       parent: attachment.parent,
       label: attachment.name,
@@ -103,7 +119,27 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
       const item = await this.data.getTreeItem(note);
       return { id: note.id, parent: note.parent, label: typeof item.label === 'string' ? item.label : item.label?.label ?? note.name, description: item.description, archived: note.archived, collapsedLabel: this.collapsedLabel?.(note), appearance: this.appearance?.(note, false), collapsedAppearance: this.appearance?.(note, true) };
     }));
-    await this.view.webview.postMessage({ type: 'notes', rows: [...this.outline, ...rows, ...attachmentRows], selected: this.selectedId, active: this.activeId });
+    let displayRows = [...this.outline, ...rows, ...attachmentRows];
+    if (shortcutIds) {
+      this.shortcutRows.clear();
+      const sourceRows = displayRows;
+      displayRows = shortcutIds.flatMap(root => {
+        // A note can be both a shortcut and a descendant of another shortcut.
+        // Give each occurrence its own selection and expansion state.
+        const key = (id: string) => JSON.stringify([root, id]);
+        return sourceRows.filter(row => {
+          const id = 'noteId' in row ? row.noteId : row.id;
+          return id === root || id.startsWith(`${root}/`);
+        }).map(row => {
+          const id = key(row.id);
+          const shortcut = row.id === root;
+          this.shortcutRows.set(id, { ...row, shortcut });
+          return { ...row, id, parent: shortcut ? '' : key(row.parent), sourceId: row.id, shortcut };
+        });
+      });
+    }
+    await this.view.webview.postMessage({ type: 'notes', rows: displayRows, selected: this.selectedId, active: this.activeId,
+      ...(this.expansionStore ? { collapsed: this.collapsed } : {}) });
   }
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -115,15 +151,43 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     const iconCss = webview.asWebviewUri(vscode.Uri.joinPath(this.extensionUri, 'media', 'codicons', 'codicon.css'));
     webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${webview.cspSource}; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">
 body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-foreground,var(--fnote-fallback-foreground));margin:0;color:var(--fnote-foreground);background:var(--vscode-sideBar-background);font-family:var(--vscode-font-family);font-size:var(--vscode-font-size)}body.vscode-light,body.vscode-high-contrast-light{--fnote-fallback-foreground:#333333}body.vscode-dark,body.vscode-high-contrast{--fnote-fallback-foreground:#cccccc}#tree{color:var(--fnote-foreground);min-height:100vh;padding:2px 0 36px;box-sizing:border-box;outline:none}.row{color:var(--fnote-foreground);height:22px;display:flex;align-items:center;box-sizing:border-box;position:relative;white-space:nowrap;cursor:default;user-select:none}.row:hover{background:var(--vscode-list-hoverBackground);color:var(--vscode-list-hoverForeground,var(--fnote-foreground))}.row[data-outline="true"]:not(.selected){color:var(--vscode-descriptionForeground,var(--fnote-foreground))}.row.active{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}#tree:focus-within .row.active.selected{background:var(--vscode-list-activeSelectionBackground);color:var(--vscode-list-activeSelectionForeground,var(--fnote-foreground))}.row:focus-visible{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px}.row .note-icon{flex:none;margin-right:5px}.row .label{color:inherit;overflow:hidden;text-overflow:ellipsis}.toggle{flex:none;width:20px;padding:0;background:none;border:0;color:inherit;font:inherit;height:22px;cursor:pointer}.before::before,.after::after{content:'';position:absolute;height:2px;left:0;right:0;background:var(--vscode-list-dropBetweenBackground,var(--vscode-focusBorder));z-index:2}.before::before{top:0}.after::after{bottom:0}.inside{outline:1px solid var(--vscode-focusBorder);outline-offset:-1px;background:var(--vscode-list-dropBackground)}#root-drop{height:24px;margin:0 8px;color:var(--vscode-descriptionForeground);font-size:11px}#root-drop.over{border-top:2px solid var(--vscode-focusBorder)}#hint{padding:8px;color:var(--vscode-descriptionForeground)}.inline-input{user-select:text;flex:1;min-width:0;height:22px;box-sizing:border-box;padding:1px 4px;border:1px solid var(--vscode-focusBorder);border-radius:0;color:var(--vscode-input-foreground);background:var(--vscode-input-background);font:inherit;outline:none}
-</style></head><body data-tags="${this.tagMode}"><div id="tree" role="tree" aria-label="${this.tagMode ? 'Tags' : 'Notes'}" tabindex="0"></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
+</style></head><body data-tags="${this.tagMode}" data-favorites="${Boolean(this.shortcutIds)}"><div id="tree" role="tree" aria-label="${this.shortcutIds ? 'Favorites' : this.tagMode ? 'Tags' : 'Notes'}" tabindex="0"></div><script nonce="${nonce}" src="${script}"></script></body></html>`;
     this.subscriptions.push(webview.onDidReceiveMessage(async (message: unknown) => {
       if (!message || typeof message !== 'object' || !('type' in message)) return;
       try {
         if (message.type === 'expansionState' && 'allCollapsed' in message && typeof message.allCollapsed === 'boolean'
           && 'hasBranches' in message && typeof message.hasBranches === 'boolean') {
-          const prefix = this.tagMode ? 'fnote.tags' : 'fnote.notes';
+          const prefix = this.shortcutIds ? 'fnote.favorite' : this.tagMode ? 'fnote.tags' : 'fnote.notes';
           await vscode.commands.executeCommand('setContext', `${prefix}AllCollapsed`, message.allCollapsed);
           await vscode.commands.executeCommand('setContext', `${prefix}HasBranches`, message.hasBranches);
+          if (this.expansionStore && 'collapsed' in message && Array.isArray(message.collapsed)
+            && message.collapsed.every((id): id is string => typeof id === 'string')) {
+            const collapsed = [...new Set(message.collapsed)].sort();
+            if (JSON.stringify(collapsed) !== JSON.stringify([...this.collapsed].sort())) {
+              this.collapsed = collapsed;
+              await this.expansionStore.save(collapsed);
+            }
+          }
+          return;
+        }
+        if (this.shortcutIds && message.type !== 'ready') {
+          if (!('id' in message) || typeof message.id !== 'string') return;
+          const row = this.shortcutRows.get(message.id);
+          if (!row) return;
+          this.selectedId = message.id;
+          if (message.type === 'open') {
+            this.activeId = message.id;
+            await vscode.commands.executeCommand('fnote.open', row.noteId ?? row.id, row.offset, true);
+          }
+          if (row.shortcut && message.type === 'command' && 'command' in message
+            && ['removeFavorite', 'favoriteUp', 'favoriteDown'].includes(String(message.command))) {
+            await vscode.commands.executeCommand(`fnote.${message.command}`, this.selection[0]);
+          }
+          if (row.shortcut && message.type === 'drop' && 'position' in message && message.position === 'before') {
+            const target = 'target' in message && typeof message.target === 'string' ? this.shortcutRows.get(message.target) : undefined;
+            if ('target' in message && message.target !== undefined && !target?.shortcut) return;
+            await this.onDrop(row.id, target?.id, 'before');
+          }
           return;
         }
         if (message.type === 'ready') {

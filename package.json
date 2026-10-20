@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "publisher": "maoren",
   "engines": {
     "vscode": "^1.88.0"
@@ -47,7 +47,8 @@
           "id": "fnote.favorite",
           "name": "favorite",
           "contextualTitle": "favorite",
-          "icon": "$(star-full)"
+          "icon": "$(star-full)",
+          "type": "webview"
         },
         {
           "id": "fnote.tags",
@@ -147,6 +148,12 @@
         "enablement": "fnote.tagsHasBranches"
       },
       {
+        "command": "fnote.collapseFavorite",
+        "title": "fnote: Collapse All Favorites",
+        "icon": "$(collapse-all)",
+        "enablement": "fnote.favoriteHasBranches"
+      },
+      {
         "command": "fnote.expandNotes",
         "title": "fnote: Expand All Notes",
         "icon": "$(expand-all)",
@@ -157,6 +164,12 @@
         "title": "fnote: Expand All Tags",
         "icon": "$(expand-all)",
         "enablement": "fnote.tagsAllCollapsed && fnote.tagsHasBranches"
+      },
+      {
+        "command": "fnote.expandFavorite",
+        "title": "fnote: Expand All Favorites",
+        "icon": "$(expand-all)",
+        "enablement": "fnote.favoriteAllCollapsed && fnote.favoriteHasBranches"
       },
       {
         "command": "fnote.closeAllNotes",
@@ -237,16 +250,6 @@
         "command": "fnote.deleteAttachment",
         "key": "delete",
         "when": "!isMac && webviewId == 'fnote.notes' && webviewSection == 'attachment'"
-      },
-      {
-        "command": "fnote.removeFavorite",
-        "key": "cmd+backspace",
-        "when": "isMac && focusedView == fnote.favorite && listFocus"
-      },
-      {
-        "command": "fnote.removeFavorite",
-        "key": "delete",
-        "when": "!isMac && focusedView == fnote.favorite && listFocus"
       }
     ],
     "menus": {
@@ -277,6 +280,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "fnote.collapseFavorite",
+          "when": "view == fnote.favorite && !fnote.favoriteAllCollapsed",
+          "group": "navigation@3"
+        },
+        {
           "command": "fnote.expandNotes",
           "when": "view == fnote.notes && fnote.notesAllCollapsed",
           "group": "navigation@3"
@@ -284,6 +292,11 @@
         {
           "command": "fnote.expandTags",
           "when": "view == fnote.tags && fnote.tagsAllCollapsed",
+          "group": "navigation@3"
+        },
+        {
+          "command": "fnote.expandFavorite",
+          "when": "view == fnote.favorite && fnote.favoriteAllCollapsed",
           "group": "navigation@3"
         },
         {
@@ -347,6 +360,21 @@
           "command": "fnote.addFavorite",
           "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
           "group": "4_favorite@1"
+        },
+        {
+          "command": "fnote.favoriteUp",
+          "when": "webviewId == 'fnote.favorite' && webviewSection == 'favorite'",
+          "group": "3_reorder@1"
+        },
+        {
+          "command": "fnote.favoriteDown",
+          "when": "webviewId == 'fnote.favorite' && webviewSection == 'favorite'",
+          "group": "3_reorder@2"
+        },
+        {
+          "command": "fnote.removeFavorite",
+          "when": "webviewId == 'fnote.favorite' && webviewSection == 'favorite'",
+          "group": "9_delete@1"
         }
       ],
       "commandPalette": [
@@ -365,23 +393,6 @@
         {
           "command": "fnote.favoriteDown",
           "when": "false"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "fnote.favoriteUp",
-          "when": "view == fnote.favorite && viewItem == favorite",
-          "group": "3_reorder@1"
-        },
-        {
-          "command": "fnote.favoriteDown",
-          "when": "view == fnote.favorite && viewItem == favorite",
-          "group": "3_reorder@2"
-        },
-        {
-          "command": "fnote.removeFavorite",
-          "when": "view == fnote.favorite && viewItem == favorite",
-          "group": "9_delete@1"
         }
       ]
     },

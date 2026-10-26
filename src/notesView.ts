@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import * as crypto from 'node:crypto';
-import { parseHeadings, type Attachment, type Note, type TagMatch } from './core';
+import { type Attachment, type Note, type TagMatch } from './core';
+import { favoriteHeadings, favoriteNoteId, resolveFavoriteHeading } from './favorites';
 
 interface MarkAppearance { mark: string; color?: string }
-interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number; appearance?: MarkAppearance; collapsedAppearance?: MarkAppearance; outlineMark?: MarkAppearance }
+interface OutlineRow { id: string; parent: string; label: string; noteId: string; offset: number; favoriteId: string; appearance?: MarkAppearance; collapsedAppearance?: MarkAppearance; outlineMark?: MarkAppearance }
 
 export type DropPosition = 'before' | 'after' | 'inside';
 export type NoteEdit = { mode: 'create' | 'rename'; id?: string; parent?: string; name: string };
@@ -19,7 +20,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private activeId?: string;
   private outline: OutlineRow[] = [];
   private subscriptions: vscode.Disposable[] = [];
-  private shortcutRows = new Map<string, { id: string; noteId?: string; offset?: number; shortcut: boolean }>();
+  private shortcutRows = new Map<string, { id: string; noteId?: string; offset?: number; favoriteId?: string; shortcut: boolean }>();
   private collapsed: string[];
   constructor(
     public readonly data: vscode.TreeDataProvider<Note>,
@@ -41,8 +42,16 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private webviewReady = false;
   get selection(): Note[] {
     const row = this.shortcutRows.get(this.selectedId ?? '');
-    const id = this.shortcutIds ? (row?.shortcut ? row.id : undefined) : this.selectedId;
+    const id = this.shortcutIds ? (row?.shortcut ? row.id : undefined)
+      : this.outline.find(row => row.id === this.selectedId)?.noteId ?? this.selectedId;
     return this.current.filter(note => note.id === id);
+  }
+  get selectedFavoriteId(): string | undefined {
+    if (this.shortcutIds) {
+      const row = this.shortcutRows.get(this.selectedId ?? '');
+      return row?.shortcut ? row.favoriteId ?? row.id : undefined;
+    }
+    return this.outline.find(row => row.id === this.selectedId)?.favoriteId ?? this.selection[0]?.id;
   }
   get selectedAttachmentId(): string | undefined {
     return this.current.flatMap(note => note.attachments ?? []).find(attachment => attachment.id === this.selectedId)?.id;
@@ -80,15 +89,19 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
     this.current = notes;
     await this.updateArchiveContext(this.current.find(note => note.id === this.selectedId));
     const shortcutIds = this.shortcutIds?.();
-    if (shortcutIds) notes = notes.filter(note => shortcutIds.some(root => note.id === root || note.id.startsWith(`${root}/`)));
+    if (shortcutIds) notes = notes.filter(note => shortcutIds.some(root => {
+      const id = favoriteNoteId(root);
+      return note.id === id || note.id.startsWith(`${id}/`);
+    }));
     const attachments = notes.flatMap(note => note.attachments ?? []);
     this.outline = this.tagMode ? [] : notes.flatMap(note => {
       const rows: OutlineRow[] = [];
-      const headings = parseHeadings(note.text);
+      const headings = favoriteHeadings(note);
       const stack: { level: number; id: string }[] = [];
       for (let index = 0; index < headings.length; index++) {
         const heading = headings[index];
-        if (heading.level === 1) { stack.length = 0; continue; }
+        // The first H1 is already represented by the note row.
+        if (index === 0 && heading.level === 1) continue;
         while (stack.length && stack[stack.length - 1].level >= heading.level) stack.pop();
         const id = `\0heading:${note.id}:${heading.start}`;
         const nextHeading = headings[index + 1];
@@ -100,7 +113,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
         // heading's own tags and descendant tags together so a lower-priority
         // descendant cannot replace a higher-priority tag on the heading.
         const collapsedAppearance = this.headingAppearance?.([...ownTags, ...descendantTags]);
-        rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start,
+        rows.push({ id, parent: stack.at(-1)?.id ?? note.id, label: heading.title, noteId: note.id, offset: heading.start, favoriteId: heading.favoriteId,
           appearance: ownAppearance, collapsedAppearance, outlineMark: this.outlineMark?.() });
         stack.push({ level: heading.level, id });
       }
@@ -127,12 +140,22 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
         // A note can be both a shortcut and a descendant of another shortcut.
         // Give each occurrence its own selection and expansion state.
         const key = (id: string) => JSON.stringify([root, id]);
-        return sourceRows.filter(row => {
+        const heading = resolveFavoriteHeading(root, notes);
+        const headingRoot = heading && sourceRows.find(row => 'favoriteId' in row && row.favoriteId === root);
+        const rootId = headingRoot?.id ?? root;
+        const included = new Set([rootId]);
+        // Outline rows precede their descendants, so one pass selects a section.
+        const selectedRows = heading ? sourceRows.filter(row => {
+          if (row.id !== rootId && !included.has(row.parent)) return false;
+          included.add(row.id);
+          return true;
+        }) : sourceRows.filter(row => {
           const id = 'noteId' in row ? row.noteId : row.id;
           return id === root || id.startsWith(`${root}/`);
-        }).map(row => {
+        });
+        return selectedRows.map(row => {
           const id = key(row.id);
-          const shortcut = row.id === root;
+          const shortcut = row.id === rootId;
           this.shortcutRows.set(id, { ...row, shortcut });
           return { ...row, id, parent: shortcut ? '' : key(row.parent), sourceId: row.id, shortcut };
         });
@@ -181,12 +204,12 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           }
           if (row.shortcut && message.type === 'command' && 'command' in message
             && ['removeFavorite', 'favoriteUp', 'favoriteDown'].includes(String(message.command))) {
-            await vscode.commands.executeCommand(`fnote.${message.command}`, this.selection[0]);
+            await vscode.commands.executeCommand(`fnote.${message.command}`, { id: this.selectedFavoriteId });
           }
           if (row.shortcut && message.type === 'drop' && 'position' in message && message.position === 'before') {
             const target = 'target' in message && typeof message.target === 'string' ? this.shortcutRows.get(message.target) : undefined;
             if ('target' in message && message.target !== undefined && !target?.shortcut) return;
-            await this.onDrop(row.id, target?.id, 'before');
+            await this.onDrop(row.favoriteId ?? row.id, target?.favoriteId ?? target?.id, 'before');
           }
           return;
         }
@@ -252,10 +275,13 @@ body{--fnote-fallback-foreground:#cccccc;--fnote-foreground:var(--vscode-editor-
           }
           const heading = this.outline.find(row => row.id === message.id);
           if (heading) {
-            this.selectedId = heading.noteId;
+            this.selectedId = heading.id;
             await this.updateArchiveContext(this.current.find(note => note.id === heading.noteId));
             if (message.type === 'open') this.activeId = heading.noteId;
             if (message.type === 'open') await vscode.commands.executeCommand('fnote.open', heading.noteId, heading.offset, true);
+            if (message.type === 'command' && 'command' in message && message.command === 'addFavorite') {
+              await vscode.commands.executeCommand('fnote.addFavorite', { id: heading.favoriteId });
+            }
             return;
           }
         }

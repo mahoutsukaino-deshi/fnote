@@ -133,7 +133,7 @@
         }
         tree.append(row);
         row.onmousedown = e => {
-          if (e.button !== 0 || note.noteId || renaming) return;
+          if (e.button !== 0 || (note.noteId && !(favoriteMode && note.shortcut)) || renaming) return;
           // Keep the pressed DOM node alive until click or dragend, including
           // the interval before the browser dispatches dragstart.
           // A new press also recovers a drag whose end occurred outside the iframe.
@@ -152,12 +152,12 @@
           preventDefaultContextMenuItems: true,
         });
         row.oncontextmenu = () => {
-          if (tagMode || note.noteId) return;
+          if (tagMode) return;
           select(note.id, true);
           send('select', note.id);
         };
         row.ondragstart = e => {
-          if (note.noteId || (favoriteMode && !note.shortcut)) { e.preventDefault(); return; }
+          if (favoriteMode ? !note.shortcut : note.noteId) { e.preventDefault(); return; }
           dragging = note.id;
           e.dataTransfer.effectAllowed = 'move';
           const mime = favoriteMode ? favoriteMime : tagMode ? 'application/vnd.fnote.tag' : note.attachment ? 'application/vnd.fnote.attachment' : noteMime;
@@ -172,7 +172,7 @@
     }
     branch('', 0);
     if (!rows.length) {
-      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = favoriteMode ? 'Right-click a note in List and select Add to favorite.' : tagMode ? 'Add tags to your notes to see them here.' : 'Click + to add a note.'; tree.append(hint);
+      const hint = document.createElement('div'); hint.id = 'hint'; hint.textContent = favoriteMode ? 'Right-click a note or heading in List and select Add to favorite.' : tagMode ? 'Add tags to your notes to see them here.' : 'Click + to add a note.'; tree.append(hint);
     }
     const rootDrop = document.createElement('div'); rootDrop.id = 'root-drop'; rootDrop.textContent = dragging ? (tagMode ? 'Move to the end of this level' : 'Move to the end of the top level') : ''; tree.append(rootDrop);
     select(selected, hadFocus); window.scrollTo(0, scroll);
@@ -371,7 +371,7 @@
       : !e.metaKey && !e.ctrlKey && e.key === 'Delete';
     if (favoriteMode && current.shortcut && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: 'removeFavorite' }); }
     if (!tagMode && !favoriteMode && !current.noteId && deleteKey) { e.preventDefault(); e.stopPropagation(); send('command', current.id, { command: current.attachment ? 'deleteAttachment' : 'delete' }); }
-    if (!tagMode && !current.noteId && e.key === 'F10' && e.shiftKey) {
+    if (!tagMode && e.key === 'F10' && e.shiftKey) {
       e.preventDefault();
       const rect = visible[index].getBoundingClientRect();
       visible[index].dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: rect.left, clientY: rect.bottom }));

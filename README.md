@@ -44,9 +44,9 @@ For keyword search, click the magnifying glass in **List**. It searches note nam
 
 ### Favorite notes
 
-Save shortcuts to frequently used notes in **favorite**. Right-click a note in the note list and select **Add to favorite**. Expand child notes and headings in a tree, using the same icons, colors, and collapsed tag priorities as the note list. Click a heading to jump to its position in the note. Attachments are hidden. A parent and child saved as separate favorites each have their own tree. Within **favorite**, drop a shortcut onto another shortcut to place it before that item, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
+Save shortcuts to frequently used notes or Markdown headings in **favorite**. Right-click a note or heading in the note list and select **Add to favorite**. Note shortcuts expand child notes and headings; heading shortcuts expand their descendant headings. Both use the same icons, colors, and collapsed tag priorities as the note list. Click a heading to jump to its position in the note. Attachments are hidden. A parent and child saved as separate favorites each have their own tree. Within **favorite**, drop a shortcut onto another shortcut to place it before that item, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
 
-To remove a shortcut, right-click it and select **Remove from favorite**. The original note remains intact. Favorite note IDs are stored in display order in the `favorite` array of `.status` at the note storage root. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension.
+To remove a registered shortcut, right-click it and select **Remove from favorite**. The original note and headings remain intact. Note favorites are stored in the `favorite` array of `.status` at the note storage root. Heading favorites and their display positions are stored separately in `.favorite-headings` so older versions sharing the storage cannot remove them. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension. Editing a heading updates its favorite's name and destination while preserving the shortcut and its display order. Heading favorites also follow position changes caused by added body text. Headings with the same level and title are distinguished by their occurrence order.
 
 The note list and favorite save their expansion states separately in `collapsedNotes` and `collapsedFavorite` in `.status` at the storage root and restore them on the next launch. Headings and Collapse All / Expand All changes are included, and the two areas can be expanded and collapsed independently.
 
@@ -54,7 +54,7 @@ The note list and favorite save their expansion states separately in `collapsedN
 
 Right-click a note for **Add Child Note**, **Rename**, **Move**, and **Delete**. Drag a note to a row’s center to make it a child, to its top or bottom edge to reorder it, or below the list to move it to the top level. Moving a parent also moves its children.
 
-Use `##`–`######` headings to divide a note into sections; click a heading in the list to jump to it. The first `#` heading supplies the displayed title. **Rename** changes both that heading and the folder name.
+Use `#`–`######` headings to divide a note into sections; click a heading in the list to jump to it. The first `#` heading supplies the note row's title; later `#` headings also appear in the list. **Rename** changes both the first `#` heading and the folder name.
 
 These shortcuts work while the note list has focus:
 

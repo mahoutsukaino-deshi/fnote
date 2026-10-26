@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "publisher": "maoren",
   "engines": {
     "vscode": "^1.88.0"
@@ -358,7 +358,7 @@
         },
         {
           "command": "fnote.addFavorite",
-          "when": "webviewId == 'fnote.notes' && webviewSection == 'note'",
+          "when": "webviewId == 'fnote.notes' && (webviewSection == 'note' || webviewSection == 'outline')",
           "group": "4_favorite@1"
         },
         {

@@ -2,7 +2,13 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## v0.1.12 (Unreleased)
+## v0.1.13 (Unreleased)
+
+- Add and remove favorites for Markdown headings (`#`–`######`). Save a heading directly with its descendant headings, reorder shortcuts, restore them after restart, and follow body position changes and note renames or moves. Show `#` headings after the initial title in the list.
+- Fix heading favorites disappearing immediately after registration when v0.1.12 shares the same storage. Store heading references and display positions in `.favorite-headings`, migrating existing entries automatically.
+- Update a heading favorite's name and destination when its title or level is edited, preserving its registration and display order, including renaming just one of multiple identically named headings.
+
+## v0.1.12
 
 - Display child notes and headings in favorite as a tree with the same icons, colors, and collapsed tag priorities as the note list. Click headings to jump to their positions in the note; attachments are excluded.
 - Add **Collapse All / Expand All** buttons to favorite, switching between them according to the expansion state just like the note list.

@@ -36,6 +36,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     favoriteSnapshot = [],
     favoritePostedMessages = [],
     rootStatusWrites = 0,
+    failHeadingWrite = false,
     documentSaved,
     selectionChanged,
     shown,
@@ -177,6 +178,10 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
           ).map((e) => [e.name, e.isDirectory() ? 2 : 1]),
         readFile: (u) => fs.readFile(u.fsPath).catch(fileError),
         writeFile: (u, data) => {
+          if (failHeadingWrite && u.fsPath === path.join(temp, '.fnote/.favorite-headings')) {
+            failHeadingWrite = false;
+            throw new Error('Heading favorites write failed');
+          }
           if (u.fsPath === path.join(temp, '.fnote/.status')) rootStatusWrites++;
           return fs.writeFile(u.fsPath, data);
         },
@@ -652,6 +657,16 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     const rootStatusPath = path.join(temp, '.fnote/.status');
     const favoriteStateKey = `favorite:file://${path.join(temp, '.fnote')}`;
     const readRootStatus = async () => JSON.parse(await fs.readFile(rootStatusPath, 'utf8'));
+    const headingFavoritesPath = path.join(temp, '.fnote/.favorite-headings');
+    const readFavoriteIds = async () => {
+      const headingEntries = JSON.parse(await fs.readFile(headingFavoritesPath, 'utf8').catch(error => {
+        if (error.code === 'ENOENT') return '[]';
+        throw error;
+      }));
+      const ids = [...(await readRootStatus()).favorite ?? []];
+      for (const entry of headingEntries) ids.splice(Math.min(entry.index, ids.length), 0, entry.id);
+      return ids;
+    };
     const initialRootStatus = await readRootStatus();
     assert.deepEqual(initialRootStatus.favorite, [child.id, parent.id]);
     assert.equal(savedState.get(favoriteStateKey), undefined);
@@ -852,15 +867,16 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual(outline[0].collapsedAppearance, { mark: "$(flag)", color: "#123456" });
     assert.deepEqual(outline[1].appearance, { mark: "$(check)", color: "#654321" });
     assert.equal(outline[2].appearance, undefined);
-    assert.deepEqual(outline[3].appearance, { mark: "$(check)", color: "#654321" });
+    assert.equal(outline[3].appearance, undefined);
+    assert.deepEqual(outline[4].appearance, { mark: "$(check)", color: "#654321" });
     assert.deepEqual(outline[0].outlineMark, { mark: "#", color: "#808080" });
     assert.deepEqual(
       outline.map((row) => row.label),
-      ["節 🎵 @HIGH", "小節 `code` ### @LOW", "節 🎵", "末尾 @LOW"],
+      ["節 🎵 @HIGH", "小節 `code` ### @LOW", "節 🎵", "別タイトル", "末尾 @LOW"],
     );
     assert.deepEqual(
       outline.map((row) => row.parent),
-      ["音楽", outline[0].id, "音楽", "音楽"],
+      ["音楽", outline[0].id, "音楽", "音楽", outline[3].id],
     );
     assert.notEqual(outline[0].id, outline[2].id);
     await run('addFavorite', parent);
@@ -889,6 +905,125 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual(favoriteSnapshot.find(row => row.sourceId === outline[0].id).outlineMark, { mark: '$(symbol-number)', color: '#123456' });
     await run('removeFavorite', parent);
     await run('removeFavorite', child);
+    // Register headings of every Markdown level independently of their note.
+    const headingNoteId = '見出しのお気に入り';
+    const headingFile = path.join(temp, '.fnote', headingNoteId, 'index.md');
+    const headingText = '# 見出しのお気に入り\r\n# 大見出し\r\n## 二\r\n### 三\r\n#### 四\r\n##### 五\r\n###### 六\r\n## 同名\r\n## 同名\r\n```md\r\n## コード内\r\n```\r\n';
+    await fs.mkdir(path.dirname(headingFile));
+    await fs.writeFile(headingFile, headingText);
+    await run('refresh');
+    const headingRows = noteRows.filter(row => row.noteId === headingNoteId);
+    assert.deepEqual(headingRows.map(row => row.label), ['大見出し', '二', '三', '四', '五', '六', '同名', '同名']);
+    const headingIds = headingRows.map(row => row.favoriteId);
+    // Migrate heading references written by the first v0.1.13 implementation.
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...await readRootStatus(), favorite: [headingIds[0]] }));
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), [headingIds[0]]);
+    assert.deepEqual((await readRootStatus()).favorite, []);
+    assert.deepEqual(JSON.parse(await fs.readFile(headingFavoritesPath, 'utf8')), [{ id: headingIds[0], index: 0 }]);
+    for (const row of headingRows) await sidebarMessage({ type: 'command', command: 'addFavorite', id: row.id });
+    await sidebarMessage({ type: 'select', id: headingRows[0].id });
+    await run('addFavorite', { webviewId: 'fnote.notes', webviewSection: 'outline' });
+    assert.deepEqual(await readFavoriteIds(), headingIds, '全レベルを登録し、同名見出しを区別して重複を防ぐ');
+    assert.deepEqual((await readRootStatus()).favorite, [], '旧版が読み書きする.statusには見出しIDを保存しない');
+    assert.deepEqual(favoriteSnapshot.filter(row => row.shortcut).map(row => row.label), headingRows.map(row => row.label));
+    // v0.1.12 in another window keeps only note IDs in the shared .status.
+    // Its watcher runs immediately after a favorite is added in the new host.
+    const legacyStatus = await readRootStatus();
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...legacyStatus,
+      favorite: legacyStatus.favorite.filter(id => provider.getChildren().some(note => note.id === id)) }));
+    await run('refresh');
+    assert.deepEqual(favoriteSnapshot.filter(row => row.shortcut).map(row => row.label), headingRows.map(row => row.label),
+      '旧版が同じ保存先を再スキャンしても見出しのお気に入りは消えない');
+    await run('addFavorite', parent);
+    const parentFavorite = favoriteSnapshot.find(row => row.shortcut && row.sourceId === parent.id);
+    const headingFavorite = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === headingIds[0]);
+    await favoriteMessage({ type: 'drop', id: parentFavorite.id, target: headingFavorite.id, position: 'before' });
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), [parent.id, ...headingIds], 'ノートと見出しを混ぜた表示順を保存する');
+    assert.deepEqual((await readRootStatus()).favorite, [parent.id]);
+    // A legacy host can still add and remove note favorites without losing headings.
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...await readRootStatus(), favorite: [] }));
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), headingIds);
+    await fs.writeFile(rootStatusPath, JSON.stringify({ ...await readRootStatus(), favorite: [child.id] }));
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), [...headingIds, child.id]);
+    await run('removeFavorite', child);
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), headingIds);
+    const secondSection = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === headingIds[1]);
+    const sectionRows = favoriteSnapshot.filter(row => JSON.parse(row.id)[0] === headingIds[1]);
+    assert.deepEqual(sectionRows.map(row => row.label), ['二', '三', '四', '五', '六']);
+    assert.equal(sectionRows[1].parent, secondSection.id);
+    for (const row of favoriteSnapshot.filter(row => row.shortcut)) {
+      await favoriteMessage({ type: 'open', id: row.id });
+      assert.equal(shown.options.selection.start.offset, row.offset);
+      assert.ok(shown.doc.uri.fsPath.endsWith(path.join(headingNoteId, 'index.md')));
+    }
+    await favoriteMessage({ type: 'select', id: secondSection.id });
+    await run('favoriteUp', { webviewId: 'fnote.favorite', webviewSection: 'favorite' });
+    assert.deepEqual((await readFavoriteIds()).slice(0, 2), [headingIds[1], headingIds[0]]);
+    const firstSection = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === headingIds[0]);
+    await favoriteMessage({ type: 'drop', id: secondSection.id, target: firstSection.id, position: 'before' });
+    await favoriteMessage({ type: 'drop', id: secondSection.id, position: 'before' });
+    assert.equal((await readFavoriteIds()).at(-1), headingIds[1]);
+    // Body edits move offsets without changing the saved heading references.
+    const shiftedText = headingText.replace('# 大見出し', '追記した本文\r\n# 大見出し');
+    await fs.writeFile(headingFile, shiftedText);
+    await run('refresh');
+    assert.equal((await readFavoriteIds()).length, headingIds.length);
+    const shiftedSection = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === headingIds[1]);
+    await favoriteMessage({ type: 'open', id: shiftedSection.id });
+    assert.equal(shown.options.selection.start.offset, shiftedText.indexOf('## 二'));
+    // Renaming Markdown headings updates the saved shortcuts in place.
+    const renamedHeadingText = shiftedText.replace('# 大見出し', '# 大見出しの変更後')
+      .replace('## 二', '## 二の変更後').replace('### 三', '### 三の変更後')
+      .replace('#### 四', '#### 四の変更後').replace('##### 五', '##### 五の変更後')
+      .replace('###### 六', '###### 六の変更後').replace('## 同名', '## 同名の変更後');
+    const headingDocument = { uri: uri(headingFile), getText: () => renamedHeadingText };
+    documents.push(headingDocument);
+    const beforeHeadingRename = await readFavoriteIds();
+    failHeadingWrite = true;
+    await run('refresh');
+    assert.match(errors.pop(), /Heading favorites write failed/);
+    assert.deepEqual(await readFavoriteIds(), beforeHeadingRename, '保存失敗時に登録を失わない');
+    await run('refresh');
+    assert.deepEqual(favoriteSnapshot.filter(row => row.shortcut).map(row => row.label),
+      ['大見出しの変更後', '三の変更後', '四の変更後', '五の変更後', '六の変更後', '同名の変更後', '同名', '二の変更後'],
+      '全レベルの改名後も登録と並べ替え順を維持し、同名見出しを区別する');
+    for (const row of favoriteSnapshot.filter(row => row.shortcut)) {
+      await favoriteMessage({ type: 'open', id: row.id });
+      const targetLine = [...renamedHeadingText.matchAll(/^#{1,6} (.*)$/gm)].find(match => match[1].trim() === row.label);
+      assert.equal(shown.options.selection.start.offset, targetLine.index);
+    }
+    await fs.writeFile(headingFile, renamedHeadingText);
+    documents.splice(documents.indexOf(headingDocument), 1);
+    const savedHeadingIds = await readFavoriteIds();
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), savedHeadingIds, '編集中の改名を保存しても登録が変わらない');
+    await fs.writeFile(headingFile, shiftedText);
+    await run('refresh');
+    assert.equal((await readFavoriteIds()).length, headingIds.length, '改名を戻しても登録を維持する');
+    // Renaming and moving the containing note also relocates heading shortcuts.
+    inputs.push('見出しの改名後');
+    await run('rename', provider.getChildren().find(note => note.id === headingNoteId));
+    picks.push({ id: parent.id });
+    await run('move', provider.getChildren().find(note => note.id === '見出しの改名後'));
+    assert.ok(favoriteSnapshot.filter(row => row.shortcut).every(row => row.noteId === '音楽/見出しの改名後'));
+    assert.equal((await readFavoriteIds()).length, headingIds.length);
+    for (const row of favoriteSnapshot.filter(row => row.shortcut)) {
+      await favoriteMessage({ type: 'command', command: 'removeFavorite', id: row.id });
+    }
+    assert.deepEqual(await readFavoriteIds(), []);
+    assert.equal(await fs.readFile(path.join(temp, '.fnote/音楽/見出しの改名後/index.md'), 'utf8'), shiftedText.replace('# 見出しのお気に入り', '# 見出しの改名後'));
+    const removableHeading = noteRows.find(row => row.noteId === '音楽/見出しの改名後' && row.label === '六');
+    await sidebarMessage({ type: 'command', command: 'addFavorite', id: removableHeading.id });
+    await fs.writeFile(path.join(temp, '.fnote/音楽/見出しの改名後/index.md'), '# 見出しの改名後\n');
+    await run('refresh');
+    assert.deepEqual(await readFavoriteIds(), [], '削除された見出しの登録を除去する');
+    await fs.rm(path.join(temp, '.fnote/音楽/見出しの改名後'), { recursive: true });
+    await run('refresh');
     await sidebarMessage({
       type: "command",
       id: outline[0].id,
@@ -1689,6 +1824,14 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     const savedNoteExpansion = ['音楽', '\0heading:音楽:7'];
     const savedFavoriteExpansion = [favoriteKey('音楽')];
+    await fs.appendFile(path.join(storage, '音楽/index.md'), '\n## 再起動の見出し\n本文\n');
+    await run('refresh');
+    let persistedHeading = noteRows.find(row => row.noteId === '音楽' && row.label === '再起動の見出し');
+    await sidebarMessage({ type: 'command', command: 'addFavorite', id: persistedHeading.id });
+    const persistedFile = path.join(storage, '音楽/index.md');
+    await fs.writeFile(persistedFile, (await fs.readFile(persistedFile, 'utf8')).replace('## 再起動の見出し', '## 改名を保存した見出し'));
+    await run('refresh');
+    persistedHeading = noteRows.find(row => row.noteId === '音楽' && row.label === '改名を保存した見出し');
     await Promise.all([
       sidebarMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedNoteExpansion }),
       favoriteMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedFavoriteExpansion }),
@@ -1706,6 +1849,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       { uri: uri(path.join(temp, "another-workspace")) },
     ];
     await activate(context);
+    assert.equal(favoriteRows().length, 2, 'ノートと見出しのお気に入りを再起動後も復元する');
+    const restoredHeading = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === persistedHeading.favoriteId);
+    assert.ok(restoredHeading);
+    await favoriteMessage({ type: 'open', id: restoredHeading.id });
+    assert.equal(shown.options.selection.start.offset, persistedHeading.offset);
+    await favoriteMessage({ type: 'command', command: 'removeFavorite', id: restoredHeading.id });
     assert.deepEqual(favoriteRows().map(row => row.id), ['音楽'], '同じ保存先のお気に入りは再起動後も保持');
     assert.deepEqual(favoritePostedMessages.at(-1).collapsed, savedFavoriteExpansion, 'お気に入りの展開状態を.statusから復元する');
     let restartedNotePayload, restartedNoteMessage;

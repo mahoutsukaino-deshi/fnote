@@ -6,6 +6,7 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { markdownLinkColor, noteAppearance, tagAppearance, parseHeadings, parseTags, formatWorkMinutes, minutesForDate, timeTagStartMinutes, planNoteDrop, renderTagText, searchNotes, styleFor, tagTree, matchesTag, within, filterTree, matchingHeadings, matchingLines, validateName, escapeHtml as h } from './core';
 import type { Attachment, Note, TagNode, TagHierarchy, TagStyles, HeadingMatch, ContentMatch, TagMatch } from './core';
+import { headingFavoriteUpdates, isHeadingFavorite, mergeFavoriteIds, relocateFavorite, resolveFavoriteHeading, type HeadingFavorite } from './favorites';
 import { parseNoteLinks, parseDisplayLinks, INCOMPLETE_TIME_TAG } from './core';
 import { linkMark, linkIconUri } from './linkMark';
 
@@ -229,6 +230,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const statusFile = (id: string) => vscode.Uri.joinPath(uri(id), '.status');
+  // Older hosts prune unknown IDs from .status.favorite, and discard unknown
+  // fields when rewriting .status. Keep heading references in a separate file.
+  const headingFavoritesFile = vscode.Uri.joinPath(root, '.favorite-headings');
+  const readHeadingFavorites = async (): Promise<HeadingFavorite[]> => {
+    try {
+      const value: unknown = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(headingFavoritesFile)).toString('utf8'));
+      if (!Array.isArray(value)) throw new Error('Invalid heading favorites file.');
+      return value.filter((entry): entry is HeadingFavorite => entry && typeof entry.id === 'string'
+        && isHeadingFavorite(entry.id) && Number.isSafeInteger(entry.index) && entry.index >= 0);
+    } catch (error) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
+  };
   const readStatus = async (id: string): Promise<NoteStatus> => {
     try {
       const value = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(statusFile(id))).toString('utf8')) as Record<string, unknown>;
@@ -244,11 +259,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   const statusWrites = new Map<string, Promise<void>>();
-  const writeStatus = async (id: string, patch: NoteStatus | ((current: NoteStatus) => NoteStatus | undefined)): Promise<void> => {
+  const writeStatus = async (id: string, patch: NoteStatus | ((current: NoteStatus) => NoteStatus | undefined | Promise<NoteStatus | undefined>)): Promise<void> => {
     // Root order, favorites, and expansion state share a file; merge patches in write order.
     const operation = (statusWrites.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       const current = await readStatus(id);
-      const update = typeof patch === 'function' ? patch(current) : patch;
+      const update = typeof patch === 'function' ? await patch(current) : patch;
       if (update) await vscode.workspace.fs.writeFile(statusFile(id), Buffer.from(`${JSON.stringify({ ...current, ...update })}\n`));
     });
     statusWrites.set(id, operation);
@@ -331,12 +346,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.favorite', favorite));
   function changeFavorites(change: (ids: string[]) => string[]): Promise<void> {
     const operation = favoriteQueue.catch(() => {}).then(async () => {
+      const headings = await readHeadingFavorites();
       let next: string[] = [];
-      await writeStatus('', status => {
-        const current = status.favorite ?? [];
-        next = [...new Set(change(current))];
-        return next.length !== current.length || next.some((id, index) => id !== current[index])
-          ? { favorite: next } : undefined;
+      await writeStatus('', async status => {
+        const stored = status.favorite ?? [];
+        next = [...new Set(change(mergeFavoriteIds(stored, headings)))];
+        const nextHeadings = next.flatMap((id, index) => isHeadingFavorite(id) ? [{ id, index }] : []);
+        if (JSON.stringify(nextHeadings) !== JSON.stringify(headings)) {
+          // Persist migrated headings before removing their old .status entries.
+          await vscode.workspace.fs.writeFile(headingFavoritesFile, Buffer.from(`${JSON.stringify(nextHeadings)}\n`));
+        }
+        const noteIds = next.filter(id => !isHeadingFavorite(id));
+        return noteIds.length !== stored.length || noteIds.some((id, index) => id !== stored[index])
+          ? { favorite: noteIds } : undefined;
       });
       favoriteIds = next;
       await favorite.update(notes);
@@ -345,7 +367,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return operation;
   }
   async function addFavorite(id: string): Promise<void> {
-    if (notes.some(note => note.id === id)) await changeFavorites(ids => [...ids, id]);
+    if (notes.some(note => note.id === id) || resolveFavoriteHeading(id, notes)) await changeFavorites(ids => [...ids, id]);
   }
   async function reorderFavorite(id: string, target: string | undefined, position: DropPosition): Promise<void> {
     if (position !== 'before' && position !== 'after') return;
@@ -487,6 +509,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       for (const note of siblings) { ordered.push(note); visit(note.id); }
     };
     visit('');
+    const previousNotes = notes;
+    const previousById = new Map(previousNotes.map(note => [note.id, note]));
+    const headingUpdates = new Map<string, string | undefined>();
+    for (const note of ordered) {
+      const previous = previousById.get(note.id);
+      if (previous) for (const [id, target] of headingFavoriteUpdates(previous, note)) headingUpdates.set(id, target);
+    }
     notes = ordered;
     const existingIds = new Set(notes.map(note => note.id));
     for (const id of savedFirstLines.keys()) if (!existingIds.has(id)) savedFirstLines.delete(id);
@@ -496,7 +525,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       legacyOrder = [];
       await context.globalState.update(legacyOrderKey, undefined);
     }
-    await changeFavorites(ids => ids.filter(id => notes.some(note => note.id === id)));
+    try {
+      await changeFavorites(ids => ids.flatMap(id => {
+        const target = headingUpdates.has(id) ? headingUpdates.get(id) : id;
+        return target && (notes.some(note => note.id === target) || resolveFavoriteHeading(target, notes)) ? [target] : [];
+      }));
+    } catch (error) {
+      // Keep the old text available to retry a rename if persistence fails.
+      notes = previousNotes;
+      throw error;
+    }
     events.fire(); tagEvents.fire(); await tree.update(notes); await tags.update(await tagRows()); decorate(); renderResults();
   }
   let refreshQueue = Promise.resolve();
@@ -763,7 +801,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (within(pending.id, id)) pending.id = destination + pending.id.slice(id.length);
       }
     }
-    if (id !== destination) await changeFavorites(ids => ids.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry));
+    if (id !== destination) await changeFavorites(ids => ids.map(entry => relocateFavorite(entry, id, destination)));
     order = order.map(entry => within(entry, id) ? destination + entry.slice(id.length) : entry);
     await writeNoteOrder(order);
     await scan();
@@ -1104,16 +1142,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     renderResults();
   });
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
-  command('addFavorite', (n?: Note) => { const note = selected(n); if (note) return addFavorite(note.id); });
-  command('removeFavorite', (n?: Note) => {
-    const note = notes.find(note => note.id === n?.id) ?? favorite.selection[0];
-    if (note) return changeFavorites(ids => ids.filter(id => id !== note.id));
+  command('addFavorite', (n?: { id?: string }) => {
+    const id = n?.id ?? tree.selectedFavoriteId;
+    if (id) return addFavorite(id);
   });
-  for (const [name, delta] of [['favoriteUp', -1], ['favoriteDown', 1]] as const) command(name, async (n?: Note) => {
-    const note = notes.find(note => note.id === n?.id) ?? favorite.selection[0];
-    if (!note) return;
-    const index = favoriteIds.indexOf(note.id), target = favoriteIds[index + delta];
-    if (index >= 0 && target !== undefined) await reorderFavorite(note.id, target, delta < 0 ? 'before' : 'after');
+  command('removeFavorite', (n?: { id?: string }) => {
+    const id = n?.id ?? favorite.selectedFavoriteId;
+    if (id) return changeFavorites(ids => ids.filter(entry => entry !== id));
+  });
+  for (const [name, delta] of [['favoriteUp', -1], ['favoriteDown', 1]] as const) command(name, async (n?: { id?: string }) => {
+    const id = n?.id ?? favorite.selectedFavoriteId;
+    if (!id) return;
+    const index = favoriteIds.indexOf(id), target = favoriteIds[index + delta];
+    if (index >= 0 && target !== undefined) await reorderFavorite(id, target, delta < 0 ? 'before' : 'after');
   });
   command('add', () => add()); command('addChild', (n?: Note) => { n = selected(n); return add(n?.id ?? ''); });
   command('addAttachment', (n?: Note) => addAttachment(selected(n)));

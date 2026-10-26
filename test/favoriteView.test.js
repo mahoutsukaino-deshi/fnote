@@ -94,3 +94,40 @@ test('お気に入りの削除キーはルートの登録のみ解除し、ノ�
     assert.ok(!view.sent.some(message => ['drop', 'attachmentDrop', 'attachmentDropError'].includes(message.type)));
   }
 });
+
+test('直接登録した見出しは右クリック・ドラッグ・削除キーで操作できる', () => {
+  const view = setup(false, '', true);
+  const headingRows = [{ ...rows[1], parent: '', shortcut: true }, rows[2], rows[4]];
+  view.message({ type: 'notes', rows: headingRows });
+  const [heading, child, other] = view.tree.querySelectorAll('.row');
+  assert.equal(heading.draggable, true);
+  assert.equal(child.draggable, false);
+  assert.equal(JSON.parse(heading.dataset.vscodeContext).webviewSection, 'favorite');
+  heading.oncontextmenu();
+  assert.equal(view.sent.at(-1).type, 'select');
+  assert.equal(view.sent.at(-1).id, 'heading');
+  const data = new Map();
+  const dataTransfer = { types: ['application/vnd.fnote.favorite'], setData: (type, value) => data.set(type, value) };
+  heading.onmousedown({ button: 0 });
+  heading.ondragstart({ dataTransfer });
+  assert.equal(JSON.parse(data.get('application/vnd.fnote.favorite')).id, 'heading');
+  view.message({ type: 'notes', rows: headingRows });
+  assert.ok(view.tree.contains(heading), '見出しのドラッグ中はDOMを維持する');
+  view.tree.handlers.drop({ target: other, dataTransfer, preventDefault() {}, stopPropagation() {} });
+  assert.equal(view.sent.find(message => message.type === 'drop').id, 'heading');
+  view.tree.handlers.keydown({ key: 'Delete', preventDefault() {}, stopPropagation() {} });
+  assert.equal(view.sent.at(-1).command, 'removeFavorite');
+  assert.equal(view.sent.at(-1).id, 'heading');
+});
+
+test('ノート一覧の見出しを右クリックすると登録対象の見出しを選択する', () => {
+  const view = setup();
+  view.message({ type: 'notes', rows: [
+    { id: 'note', parent: '', label: 'ノート' }, { ...rows[1], parent: 'note' },
+  ] });
+  const heading = view.tree.querySelectorAll('.row')[1];
+  assert.equal(JSON.parse(heading.dataset.vscodeContext).webviewSection, 'outline');
+  heading.oncontextmenu();
+  assert.equal(view.sent.at(-1).type, 'select');
+  assert.equal(view.sent.at(-1).id, 'heading');
+});

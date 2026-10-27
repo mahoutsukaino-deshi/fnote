@@ -12,11 +12,16 @@ manifest = f'''<?xml version="1.0" encoding="utf-8"?>
 <Metadata><Identity Language="en-US" Id="{publisher}.{name}" Version="{version}" Publisher="{publisher}"/><DisplayName>fnote</DisplayName><Icon>extension/media/icon.png</Icon><Description xml:space="preserve">{escape(package['description'])}</Description><Tags>markdown,notes</Tags><Categories>Other</Categories><GalleryFlags>Public</GalleryFlags><Properties><Property Id="Microsoft.VisualStudio.Code.Engine" Value="{package['engines']['vscode']}"/><Property Id="Microsoft.VisualStudio.Code.ExtensionDependencies" Value=""/><Property Id="Microsoft.VisualStudio.Code.ExtensionPack" Value=""/><Property Id="Microsoft.VisualStudio.Code.ExtensionKind" Value="workspace"/></Properties></Metadata>
 <Installation><InstallationTarget Id="Microsoft.VisualStudio.Code"/></Installation><Dependencies/>
 <Assets><Asset Type="Microsoft.VisualStudio.Services.Icons.Default" Path="extension/media/icon.png" Addressable="true"/><Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true"/><Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true"/></Assets></PackageManifest>'''
-content_types = '''<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="js" ContentType="application/javascript"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="css" ContentType="text/css"/><Default Extension="ttf" ContentType="font/ttf"/><Default Extension="png" ContentType="image/png"/><Default Extension="vsixmanifest" ContentType="text/xml"/></Types>'''
+content_types = '''<?xml version="1.0" encoding="utf-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="json" ContentType="application/json"/><Default Extension="js" ContentType="application/javascript"/><Default Extension="md" ContentType="text/markdown"/><Default Extension="css" ContentType="text/css"/><Default Extension="ttf" ContentType="font/ttf"/><Default Extension="png" ContentType="image/png"/><Default Extension="svg" ContentType="image/svg+xml"/><Default Extension="vsixmanifest" ContentType="text/xml"/></Types>'''
 output = root / f'{name}-{version}.vsix'
 with ZipFile(output, 'w', ZIP_DEFLATED) as archive:
     archive.writestr('extension.vsixmanifest', manifest)
     archive.writestr('[Content_Types].xml', content_types)
-    for relative in ['package.json', 'README.md', 'CHANGELOG.md', 'CHANGELOG.ja.md', '画面イメージ.png', 'dist/core.js', 'dist/extension.js', 'dist/linkMark.js', 'dist/notesView.js', 'media/notes.js', 'media/icon.png', *[str(file.relative_to(root)) for file in sorted((root / 'media/codicons').iterdir()) if file.is_file()]]:
-        archive.write(root / relative, f'extension/{relative}')
+    files = [root / name for name in ['package.json', 'README.md', 'README.ja.md', 'CHANGELOG.md', 'CHANGELOG.ja.md']]
+    files += sorted((root / 'dist').rglob('*.js'))
+    files += sorted(file for file in (root / 'media').rglob('*') if file.is_file()
+                    and not any(part.startswith('.') for part in file.relative_to(root).parts))
+    for file in files:
+        relative = file.relative_to(root).as_posix()
+        archive.write(file, f'extension/{relative}')
 print(output)

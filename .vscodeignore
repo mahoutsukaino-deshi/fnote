@@ -4,11 +4,7 @@
 !README.ja.md
 !CHANGELOG.md
 !CHANGELOG.ja.md
-!dist/core.js
-!dist/extension.js
-!dist/favoriteView.js
-!dist/linkMark.js
-!dist/notesView.js
+!dist/**/*.js
 !media/notes.js
 !media/icon.png
 !media/fnote.svg

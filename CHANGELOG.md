@@ -4,6 +4,7 @@
 
 ## v0.1.13 (Unreleased)
 
+- Fix the extension failing to load after VSIX installation because a required runtime module was omitted. Include compiled JavaScript automatically and test loading the extension using only packaged files.
 - Add and remove favorites for Markdown headings (`#`–`######`). Save a heading directly with its descendant headings, reorder shortcuts, restore them after restart, and follow body position changes and note renames or moves. Show `#` headings after the initial title in the list.
 - Fix heading favorites disappearing immediately after registration when v0.1.12 shares the same storage. Store heading references and display positions in `.favorite-headings`, migrating existing entries automatically.
 - Update a heading favorite's name and destination when its title or level is edited, preserving its registration and display order, including renaming just one of multiple identically named headings.

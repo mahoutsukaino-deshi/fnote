@@ -2,7 +2,14 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## v0.1.13 (Unreleased)
+## v0.1.14
+
+- Enable find within tag and keyword results with `Ctrl+F` (`Cmd+F` on macOS).
+- Match the editor's theme colors for current and other in-panel find highlights.
+- Use the same in-panel navigation for `Enter` and the next arrow to address cases where Enter fails to advance. Support `Shift+Enter` and the previous arrow, show match counts and position, and preserve IME confirmation without navigating.
+- Keep the find query and match position across rerenders and tab switches. Skip result page reloads when rescanning leaves the displayed content unchanged.
+
+## v0.1.13
 
 - Fix the extension failing to load after VSIX installation because a required runtime module was omitted. Include compiled JavaScript automatically and test loading the extension using only packaged files.
 - Add and remove favorites for Markdown headings (`#`–`######`). Save a heading directly with its descendant headings, reorder shortcuts, restore them after restart, and follow body position changes and note renames or moves. Show `#` headings after the initial title in the list.

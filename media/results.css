@@ -1,0 +1,48 @@
+#results-find[hidden] { display: none; }
+#results-find {
+  position: fixed;
+  z-index: 10;
+  top: 0;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  max-width: calc(100% - 24px);
+  padding: 5px;
+  color: var(--vscode-editorWidget-foreground);
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border, transparent);
+  border-radius: 0 0 4px 4px;
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+#results-find-input {
+  box-sizing: border-box;
+  width: 220px;
+  min-width: 50px;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+}
+#results-find-input:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+#results-find-input[aria-invalid="true"] {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}
+#results-find-count { white-space: nowrap; min-width: 44px; text-align: center; }
+#results-find button { flex: none; padding: 4px; display: flex; border-radius: 3px; }
+#results-find button:disabled { opacity: 0.4; cursor: default; }
+#results-find button:not(:disabled):hover { background: var(--vscode-toolbar-hoverBackground); }
+#results-find button:focus-visible { outline: 1px solid var(--vscode-focusBorder); }
+::highlight(fnote-find) {
+  background-color: var(--vscode-editor-findMatchHighlightBackground);
+  color: var(--vscode-editor-findMatchHighlightForeground, currentColor);
+}
+::highlight(fnote-find-current) {
+  background-color: var(--vscode-editor-findMatchBackground);
+  color: var(--vscode-editor-findMatchForeground, currentColor);
+}

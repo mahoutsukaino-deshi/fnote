@@ -189,6 +189,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const pendingTitleRenames = new Set<{ id: string }>();
   const firstLine = (text: string): string => text.split('\n', 1)[0].replace(/\r$/, '').replace(/^\uFEFF/, '');
   let panel: vscode.WebviewPanel | undefined;
+  let lastResultsContent: string | undefined;
   let activeTag: string | undefined;
   let activeQuery: string | undefined;
   let dateTagSortOverride: DateTagSortMode | undefined;
@@ -1082,9 +1083,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       ? `<div class="sort-control"><button type="button" data-action="toggle-date-sort" data-sort-mode="${dateSortMode}">Sort: ${sortLabels[dateSortMode]}</button></div>`
       : '';
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
-    const nonce = crypto.randomBytes(16).toString('hex');
+    const { cspSource } = panel.webview;
     const iconCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'codicons', 'codicon.css'));
-    panel.webview.html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${panel.webview.cspSource}; style-src ${panel.webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}h2{font-size:1.05em;margin:12px 0 4px;color:var(--vscode-descriptionForeground)}p{margin:0 0 8px}.sort-control{margin:0 0 8px;color:var(--vscode-descriptionForeground)}.date-group ul{margin-bottom:4px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${sortControl}${body}<script nonce="${nonce}">const api=acquireVsCodeApi();document.addEventListener('click',e=>{const sort=e.target.closest('button[data-action="toggle-date-sort"]');if(sort){api.postMessage({type:'toggleDateTagSort'});return;}const b=e.target.closest('button[data-id]');if(b)api.postMessage({id:b.dataset.id,...(b.dataset.offset!==undefined?{offset:Number(b.dataset.offset)}:{})});});</script></body></html>`;
+    const resultsCss = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'results.css'));
+    const resultsScript = panel.webview.asWebviewUri(vscode.Uri.joinPath(context.extensionUri, 'media', 'results.js'));
+    const findWidget = '<div id="results-find" role="search" aria-label="Find in results" hidden>'
+      + '<input id="results-find-input" type="text" aria-label="Find in results" placeholder="Find" autocomplete="off" spellcheck="false">'
+      + '<span id="results-find-count" role="status" aria-live="polite"></span>'
+      + '<button id="results-find-previous" type="button" aria-label="Previous Match" title="Previous Match (Shift+Enter)"><i class="codicon codicon-arrow-up" aria-hidden="true"></i></button>'
+      + '<button id="results-find-next" type="button" aria-label="Next Match" title="Next Match (Enter)"><i class="codicon codicon-arrow-down" aria-hidden="true"></i></button>'
+      + '<button id="results-find-close" type="button" aria-label="Close Find" title="Close (Escape)"><i class="codicon codicon-close" aria-hidden="true"></i></button></div>';
+    const renderHtml = (nonce: string): string => `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; font-src ${cspSource}; style-src ${cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}'"><link rel="stylesheet" href="${iconCss}"><link rel="stylesheet" href="${resultsCss}"><style nonce="${nonce}">body{font-family:var(--vscode-font-family);color:var(--vscode-editor-foreground);background:var(--vscode-editor-background);padding:12px;line-height:1.35}h1{font-size:1.3em;margin:0 0 6px}h2{font-size:1.05em;margin:12px 0 4px;color:var(--vscode-descriptionForeground)}p{margin:0 0 8px}.sort-control{margin:0 0 8px;color:var(--vscode-descriptionForeground)}.date-group ul{margin-bottom:4px}ul{list-style:none;margin:0;padding-left:18px;border-left:1px solid var(--vscode-tree-indentGuidesStroke)}li{margin:0}ul:empty{display:none}button{font:inherit;text-align:left;color:inherit;background:transparent;border:0;padding:1px 4px;cursor:pointer;max-width:100%;overflow-wrap:anywhere}button:hover,button:focus{background:var(--vscode-list-hoverBackground);outline:1px solid var(--vscode-focusBorder)}button .codicon{vertical-align:middle;position:relative;top:-1px}.work-time{font-size:0.85em;margin-left:4px;color:var(--vscode-descriptionForeground);white-space:nowrap}.content{white-space:pre-wrap}${linkCss}${tagCss}${iconColors.map((color, i) => `.note-icon-${i}{color:${color}}`).join('')}</style></head><body>${findWidget}<main id="results-content" tabindex="-1"><h1>${titleHtml}${timeLabel(sumMinutes([...ownMinutes.values()]))}</h1><p>${count} ${count === 1 ? 'note' : 'notes'}</p>${sortControl}${body}</main><script nonce="${nonce}" src="${resultsScript}"></script></body></html>`;
+    // A fresh CSP nonce must not make unchanged results reload and interrupt in-panel find.
+    const content = renderHtml('');
+    if (content === lastResultsContent) return;
+    panel.webview.html = renderHtml(crypto.randomBytes(16).toString('hex'));
+    lastResultsContent = content;
   }
   function filter(tag: string, preserveFocus = false) {
     activeTag = tag;
@@ -1104,8 +1118,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   function showResults(title: string, preserveFocus = false) {
     if (!panel) {
-      panel = vscode.window.createWebviewPanel('fnote.results', `fnote: ${title}`, vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
-      panel.onDidDispose(() => { panel = undefined; }, null, context.subscriptions);
+      panel = vscode.window.createWebviewPanel('fnote.results', `fnote: ${title}`, vscode.ViewColumn.Active, { enableFindWidget: false, retainContextWhenHidden: true, enableScripts: true, localResourceRoots: [vscode.Uri.joinPath(context.extensionUri, 'media')] });
+      panel.onDidDispose(() => { panel = undefined; lastResultsContent = undefined; }, null, context.subscriptions);
       panel.webview.onDidReceiveMessage(guard((message: unknown) => {
         if (typeof message !== 'object' || message === null) return;
         if ('type' in message && message.type === 'toggleDateTagSort') {
@@ -1141,6 +1155,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     dateTagSortOverride = dateTagSortModes[(index + 1) % dateTagSortModes.length];
     renderResults();
   });
+  command('findInResults', () => panel?.webview.postMessage({ type: 'showFind' }));
   command('search', search); command('open', open); command('filter', filter); command('refresh', refresh);
   command('addFavorite', (n?: { id?: string }) => {
     const id = n?.id ?? tree.selectedFavoriteId;

@@ -6,6 +6,8 @@
 !CHANGELOG.ja.md
 !dist/**/*.js
 !media/notes.js
+!media/results.js
+!media/results.css
 !media/icon.png
 !media/fnote.svg
 !media/screenshots/**

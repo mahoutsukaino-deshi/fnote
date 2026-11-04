@@ -42,6 +42,8 @@ Write `@tag-name` in your notes; no registration is needed. Use `/` for a hierar
 
 For keyword search, click the magnifying glass in **List**. It searches note names and content, ignoring case, and includes archived notes.
 
+Focus the tag or keyword results panel and press `Ctrl+F` (`Cmd+F` on macOS) to find text within the displayed results. Press `Enter` or the next arrow for the next match, and `Shift+Enter` or the previous arrow to go back. The find box shows your position and total matches and preserves the query and position across rerenders and tab switches. During IME composition, Enter confirms the text instead. Press `Escape` to close find. Highlights follow the standard editor's find theme colors.
+
 ### Favorite notes
 
 Save shortcuts to frequently used notes or Markdown headings in **favorite**. Right-click a note or heading in the note list and select **Add to favorite**. Note shortcuts expand child notes and headings; heading shortcuts expand their descendant headings. Both use the same icons, colors, and collapsed tag priorities as the note list. Click a heading to jump to its position in the note. Attachments are hidden. A parent and child saved as separate favorites each have their own tree. Within **favorite**, drop a shortcut onto another shortcut to place it before that item, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.

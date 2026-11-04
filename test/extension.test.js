@@ -27,6 +27,8 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     throw e;
   };
   let html = "",
+    resultHtmlWrites = 0,
+    resultMessages = [],
     panelCount = 0,
     panelDisposeCount = 0,
     panelReveals = [],
@@ -291,7 +293,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
           webview: {
             asWebviewUri: (value) => value.toString(),
             cspSource: "https://webview.test",
+            postMessage: async message => { resultMessages.push(message); return true; },
             set html(value) {
+              resultHtmlWrites++;
               html = value;
             },
             onDidReceiveMessage: (handler) => {
@@ -591,11 +595,29 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     await run("filter", "2026");
     assert.equal(panelCount, 1);
+    assert.match(html, /id="results-find-input"/);
+    assert.match(html, /media\/results\.js/);
+    assert.match(html, /media\/results\.css/);
+    await run("findInResults");
+    assert.deepEqual(resultMessages.at(-1), { type: "showFind" });
     assert.match(html, /音楽/);
     assert.match(html, /曲/);
     assert.match(html, /<p>1 note<\/p>/);
     await tagMessage({ type: "open", id: "TODO" });
     assert.deepEqual(panelReveals.at(-1), [undefined, true], "タグ選択後もタグ一覧にフォーカスを残す");
+    const tagResultWrites = resultHtmlWrites;
+    for (let i = 0; i < 3; i++) await run("refresh");
+    await run("filter", "TODO");
+    assert.equal(resultHtmlWrites, tagResultWrites, "同じタグ結果の再スキャンや再選択で画面内検索をリセットしない");
+    const resultNoteFile = path.join(temp, ".fnote/音楽/曲/index.md");
+    const resultNoteText = await fs.readFile(resultNoteFile, "utf8");
+    await fs.writeFile(resultNoteFile, `${resultNoteText}\n@TODO 検索結果の更新確認\n`);
+    await run("refresh");
+    assert.equal(resultHtmlWrites, tagResultWrites + 1, "表示内容の変更は結果画面に反映する");
+    assert.match(html, /検索結果の更新確認/);
+    await fs.writeFile(resultNoteFile, resultNoteText);
+    await run("refresh");
+    assert.doesNotMatch(html, /検索結果の更新確認/);
     settings.set("tagHierarchy", { 状態: ["TODO", "WAIT"] });
     await run("refresh");
     assert.equal(tagRows.find((row) => row.id === "TODO").parent, "状態");
@@ -1311,6 +1333,11 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     inputs.push("ALERT");
     await run("search");
     assert.match(html, /Search: ALERT/);
+    const keywordResultWrites = resultHtmlWrites;
+    await run("refresh");
+    inputs.push("ALERT");
+    await run("search");
+    assert.equal(resultHtmlWrites, keywordResultWrites, "同じキーワード結果を再表示しても画面内検索をリセットしない");
     assert.match(html, /data-id="音楽" class="ancestor"/);
     assert.match(
       html,
@@ -1780,6 +1807,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.deepEqual(provider.getChildren().map(note => note.id), ['音楽']);
     assert.deepEqual(favoriteRows().map(row => row.id), ['音楽']);
     // Closing all notes also disposes tag/search results and allows reopening them.
+    await run("filter", "TODO");
     const panelsBeforeClose = panelCount;
     api.window.tabGroups.all = [
       { tabs: [noteTab, unrelatedTab, unrelatedWebviewTab] },
@@ -1794,7 +1822,9 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     closeResult = true;
     await run("closeAllNotes");
     assert.equal(panelDisposeCount, 1, "タグ一覧から開いた画面も閉じる");
+    const writesBeforeReopen = resultHtmlWrites;
     await run("filter", "TODO");
+    assert.equal(resultHtmlWrites, writesBeforeReopen + 1, "結果画面を作り直す際は同じ内容でもHTMLを設定する");
     assert.equal(
       panelCount,
       panelsBeforeClose + 1,

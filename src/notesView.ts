@@ -22,6 +22,7 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   private subscriptions: vscode.Disposable[] = [];
   private shortcutRows = new Map<string, { id: string; noteId?: string; offset?: number; favoriteId?: string; shortcut: boolean }>();
   private collapsed: string[];
+  private showArchived = true;
   constructor(
     public readonly data: vscode.TreeDataProvider<Note>,
     private readonly extensionUri: vscode.Uri,
@@ -65,11 +66,16 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   async expandAll(): Promise<void> {
     await this.view?.webview.postMessage({ type: 'expandAll' });
   }
+  async setShowArchived(showArchived: boolean): Promise<void> {
+    this.showArchived = showArchived;
+    await this.update(this.current);
+  }
   async reveal(note: Note): Promise<void> {
-    this.selectedId = note.id;
-    await this.updateArchiveContext(note);
+    const hidden = !this.tagMode && !this.shortcutIds && !this.showArchived && note.archived;
+    this.selectedId = hidden ? undefined : note.id;
+    await this.updateArchiveContext(hidden ? undefined : note);
     this.activeId = note.id;
-    await this.view?.webview.postMessage({ type: 'select', id: note.id, active: true });
+    await this.view?.webview.postMessage({ type: 'select', id: this.selectedId, active: true });
   }
   async startCreate(parent = ''): Promise<boolean> {
     return this.startEdit({ mode: 'create', parent });
@@ -87,6 +93,19 @@ export class NotesView implements vscode.WebviewViewProvider, vscode.Disposable 
   }
   async update(notes: Note[]): Promise<void> {
     this.current = notes;
+    if (!this.tagMode && !this.shortcutIds && !this.showArchived) {
+      const byId = new Map(notes.map(note => [note.id, note]));
+      notes = notes.filter(note => !note.archived).map(note => {
+        // Keep explicitly unarchived children reachable without displaying
+        // their archived ancestors. Their storage hierarchy stays intact.
+        let parent = note.parent;
+        while (parent && byId.get(parent)?.archived) parent = byId.get(parent)!.parent;
+        return parent === note.parent ? note : { ...note, parent };
+      });
+      const visibleIds = new Set(notes.flatMap(note => [note.id, ...(note.attachments ?? []).map(item => item.id)]));
+      const selectedNoteId = this.outline.find(row => row.id === this.selectedId)?.noteId ?? this.selectedId;
+      if (selectedNoteId && !visibleIds.has(selectedNoteId)) this.selectedId = undefined;
+    }
     await this.updateArchiveContext(this.current.find(note => note.id === this.selectedId));
     const shortcutIds = this.shortcutIds?.();
     if (shortcutIds) notes = notes.filter(note => shortcutIds.some(root => {

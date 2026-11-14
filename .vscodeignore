@@ -10,6 +10,8 @@
 !media/results.css
 !media/icon.png
 !media/fnote.svg
+!media/light/checkbox-*.svg
+!media/dark/checkbox-*.svg
 !media/screenshots/**
 
 !media/codicons/**

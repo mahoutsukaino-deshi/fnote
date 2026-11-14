@@ -102,12 +102,16 @@
         row.dataset.outline = String(Boolean(note.noteId));
         row.dataset.attachment = String(Boolean(note.attachment));
         row.draggable = favoriteMode ? Boolean(note.shortcut) : !note.noteId; row.style.paddingLeft = `${depth * 16 + 4}px`;
-        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1)); row.title = note.noteId ? note.label : note.sourceId ?? note.id;
+        row.setAttribute('role', 'treeitem'); row.setAttribute('aria-level', String(depth + 1));
+        row.title = tagMode ? `Show notes tagged @${note.id}` : note.noteId ? `Go to heading: ${note.label}`
+          : `${note.attachment ? 'Open attachment' : 'Open note'}: ${note.sourceId ?? note.id}`;
         if (hasChildren && !collapsed.has(note.id)) hasExpandedBranch = true;
         if (hasChildren) row.setAttribute('aria-expanded', String(!collapsed.has(note.id)));
         const toggle = document.createElement('button'); toggle.className = 'toggle'; toggle.tabIndex = -1;
         toggle.textContent = hasChildren ? (collapsed.has(note.id) ? '▸' : '▾') : '';
-        toggle.setAttribute('aria-label', collapsed.has(note.id) ? 'Expand' : 'Collapse');
+        const toggleLabel = collapsed.has(note.id) ? 'Expand' : 'Collapse';
+        toggle.setAttribute('aria-label', toggleLabel);
+        if (hasChildren) toggle.title = `${toggleLabel}: ${note.label}`;
         toggle.onclick = e => { e.stopPropagation(); if (hasChildren) { collapsed.has(note.id) ? collapsed.delete(note.id) : collapsed.add(note.id); persist(); render(); select(note.id, true); send('select', note.id); } };
         const label = document.createElement('span'); label.className = 'label'; label.textContent = collapsed.has(note.id) ? (note.collapsedLabel ?? note.label) : note.label;
         row.append(toggle);
@@ -403,7 +407,9 @@
       // list refreshes must not overwrite newer user interactions in this view.
       if (!expansionRestored && Array.isArray(message.collapsed)) collapsed = new Set(message.collapsed);
       expansionRestored = true;
-      rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active; render();
+      rows = message.rows; selected = message.selected ?? selected; active = message.active ?? active;
+      if (selected && !rows.some(row => row.id === selected)) selected = undefined;
+      render();
     }
     if (message.type === 'expandAll') {
       collapsed.clear(); persist(); render();

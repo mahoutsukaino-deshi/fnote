@@ -4,6 +4,16 @@ const assert = require('node:assert/strict');
 
 const { setup } = require('../test-support/notesWebview');
 
+test('一覧から非表示になった行の選択を解除し、再表示しても選択を復活させない', () => {
+  const view = setup();
+  const rows = [{ id: 'note', parent: '', label: 'Note' }];
+  view.message({ type: 'notes', rows, selected: 'note' });
+  assert.ok(view.tree.children[0].classes.has('selected'));
+  view.message({ type: 'notes', rows: [] });
+  view.message({ type: 'notes', rows });
+  assert.ok(!view.tree.children[0].classes.has('selected'));
+});
+
 for (const favoriteMode of [false, true]) test(`${favoriteMode ? 'お気に入り' : 'ノート一覧'}: 保存した展開状態を復元し、再スキャンでは操作を巻き戻さない`, () => {
   const view = setup(false, '', favoriteMode, { collapsed: ['other'] });
   const rows = [

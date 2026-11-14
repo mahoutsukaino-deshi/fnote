@@ -16,6 +16,7 @@ interface NoteStatus {
   favorite?: string[];
   collapsedNotes?: string[];
   collapsedFavorite?: string[];
+  showArchived?: boolean;
 }
 
 type DateTagSortMode = 'note' | 'time';
@@ -250,6 +251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const value = JSON.parse(Buffer.from(await vscode.workspace.fs.readFile(statusFile(id))).toString('utf8')) as Record<string, unknown>;
       return {
         ...(typeof value.archived === 'boolean' ? { archived: value.archived } : {}),
+        ...(typeof value.showArchived === 'boolean' ? { showArchived: value.showArchived } : {}),
         ...(Array.isArray(value.order) ? { order: value.order.filter((item): item is string => typeof item === 'string') } : {}),
         ...(Array.isArray(value.favorite) ? { favorite: value.favorite.filter((item): item is string => typeof item === 'string') } : {}),
         ...(Array.isArray(value.collapsedNotes) ? { collapsedNotes: value.collapsedNotes.filter((item): item is string => typeof item === 'string') } : {}),
@@ -272,6 +274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     finally { if (statusWrites.get(id) === operation) statusWrites.delete(id); }
   };
   const rootStatus = await readStatus('');
+  let showArchived = rootStatus.showArchived ?? true;
   const savedFavorites = rootStatus.favorite;
   if (savedFavorites !== undefined) favoriteIds = [...new Set(savedFavorites)];
   else if (Array.isArray(legacyFavoriteIds)) {
@@ -338,6 +341,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     save: collapsedNotes => writeStatus('', { collapsedNotes }),
   });
   context.subscriptions.push(vscode.window.registerWebviewViewProvider('fnote.notes', tree));
+  await tree.setShowArchived(showArchived);
+  await vscode.commands.executeCommand('setContext', 'fnote.showArchived', showArchived);
   const favorite = new NotesView(provider, context.extensionUri,
     (id, target) => reorderFavorite(id, target, 'before'), false, undefined,
     note => noteAppearanceInSubtree(note), headingAppearance, outlineMark, undefined, undefined, () => favoriteIds, {
@@ -959,7 +964,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       return html + h(text.slice(cursor));
     };
-    const contentBranch = (id: string, lines: ContentMatch[]): string => lines.length ? `<ul>${lines.map(line => `<li><button data-id="${h(id)}" data-offset="${line.start}" class="content">${fragment(id, line.start, line.text)}</button></li>`).join('')}</ul>` : '';
+    const contentBranch = (id: string, lines: ContentMatch[]): string => lines.length ? `<ul>${lines.map(line => `<li><button title="Go to source line in ${h(id)}" data-id="${h(id)}" data-offset="${line.start}" class="content">${fragment(id, line.start, line.text)}</button></li>`).join('')}</ul>` : '';
     const timeLabel = (minutes: number | undefined): string =>
       minutes === undefined ? '' : `<span class="work-time">(${formatWorkMinutes(minutes)})</span>`;
     const sumMinutes = (values: (number | undefined)[]): number | undefined =>
@@ -974,7 +979,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       : minutesForDate(note.text, matchingLines(note.text, tag, note.tags, hierarchy()), tag, note.tags)]));
     const noteMinutes = (id: string): number | undefined =>
       sumMinutes(subset.filter(note => within(note.id, id)).map(note => ownMinutes.get(note.id)));
-    const headingBranch = (id: string, headings: HeadingMatch[], contentTag = tag): string => headings.length ? `<ul>${headings.map(heading => `<li><button data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading, contentTag))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children, contentTag)}</li>`).join('')}</ul>` : '';
+    const headingBranch = (id: string, headings: HeadingMatch[], contentTag = tag): string => headings.length ? `<ul>${headings.map(heading => `<li><button title="Go to heading: ${h(heading.title)}" data-id="${h(id)}" data-offset="${heading.start}" class="${heading.matched ? 'match' : 'ancestor'}">${fragment(id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(id, heading, contentTag))}${contentBranch(id, heading.lines.filter(line => line.start !== heading.start))}${headingBranch(id, heading.children, contentTag)}</li>`).join('')}</ul>` : '';
     const noteContent = (note: Note, contentTag = tag): string => {
       if (activeQuery) return contentBranch(note.id, hitMap.get(note.id)?.lines ?? []);
       const headings = matchingHeadings(note.text, contentTag, note.tags, hierarchy());
@@ -1035,7 +1040,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         || notes.indexOf(a.note) - notes.indexOf(b.note) || a.occurrence.lineStart - b.occurrence.lineStart).map(({ note, occurrence }) => {
         const path = groupNotes.filter(parent => within(note.id, parent.id))
           .sort((a, b) => a.id.split('/').length - b.id.split('/').length)
-          .map(parent => `<button data-id="${h(parent.id)}" class="${parent.id === note.id ? 'match' : 'ancestor'}">${markHtml(parent)} ${noteTitle(parent)}</button>${timeLabel(groupNoteMinutes(parent.id))}`);
+          .map(parent => `<button title="Open note: ${h(parent.id)}" data-id="${h(parent.id)}" class="${parent.id === note.id ? 'match' : 'ancestor'}">${markHtml(parent)} ${noteTitle(parent)}</button>${timeLabel(groupNoteMinutes(parent.id))}`);
         const contentTag = date && isDateLevel(tag) ? date : tag;
         const headings = matchingHeadings(note.text, contentTag, note.tags, hierarchy());
         const appendHeadingPath = (nodes: HeadingMatch[]): boolean => {
@@ -1044,7 +1049,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const initialTitle = heading === headings[0] && heading.title === note.name
               && note.text.slice(0, heading.start).trim() === ''
               && /^ {0,3}#[\t ]/.test(note.text.slice(heading.start));
-            if (!initialTitle) path.push(`<button data-id="${h(note.id)}" data-offset="${heading.start}" class="ancestor">${fragment(note.id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(note.id, heading, date))}`);
+            if (!initialTitle) path.push(`<button title="Go to heading: ${h(heading.title)}" data-id="${h(note.id)}" data-offset="${heading.start}" class="ancestor">${fragment(note.id, heading.start, heading.title)}</button>${timeLabel(headingMinutes(note.id, heading, date))}`);
             appendHeadingPath(heading.children);
             return true;
           }
@@ -1069,18 +1074,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         const tail = note.text.slice(cursor, lineEnd).trim();
         if (tail) remaining.push(fragment(note.id, occurrence.lineStart, tail));
-        return `<li class="timeline-row"><button data-id="${h(note.id)}" data-offset="${occurrence.lineStart}" class="content">${[...leading, ...remaining].join(' ')}</button> ${path.join(' / ')}</li>`;
+        return `<li class="timeline-row"><button title="Go to source line in ${h(note.id)}" data-id="${h(note.id)}" data-offset="${occurrence.lineStart}" class="content">${[...leading, ...remaining].join(' ')}</button> ${path.join(' / ')}</li>`;
       }).join('');
       return `<section class="date-group"><h2>${h(date || 'No date')}</h2><ul>${rows}</ul></section>`;
     }).join('') : '';
-    const branch = (parent: string): string => `<ul>${orderedSubset.filter(n => n.parent === parent).map(n => `<li><button data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
+    const branch = (parent: string): string => `<ul>${orderedSubset.filter(n => n.parent === parent).map(n => `<li><button title="Open note: ${h(n.id)}" data-id="${h(n.id)}" class="${isMatch(n) ? 'match' : 'ancestor'}">${markHtml(n)} ${noteTitle(n)}</button>${timeLabel(noteMinutes(n.id))}${noteContent(n)}${branch(n.id)}</li>`).join('')}</ul>`;
     const body = timelineMode ? timelineBody || '<p>No matching notes.</p>' : subset.length ? branch('') : '<p>No matching notes.</p>';
     const titleHtml = activeQuery ? h(title) : tag === INCOMPLETE_TIME_TAG
       ? `<span class="${classFor(tag)}">${h(title)}</span>`
       : renderTagText(title, parseTags(title), classFor);
     const sortLabels: Record<DateTagSortMode, string> = { note: 'Notes', time: 'Time' };
     const sortControl = !activeQuery
-      ? `<div class="sort-control"><button type="button" data-action="toggle-date-sort" data-sort-mode="${dateSortMode}">Sort: ${sortLabels[dateSortMode]}</button></div>`
+      ? `<div class="sort-control"><button type="button" title="Change result order (current: ${sortLabels[dateSortMode]})" data-action="toggle-date-sort" data-sort-mode="${dateSortMode}">Sort: ${sortLabels[dateSortMode]}</button></div>`
       : '';
     const tagCss = [...tagClasses].map(([declaration, name]) => `.${name}{${declaration}}`).join('');
     const { cspSource } = panel.webview;
@@ -1150,6 +1155,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   command('collapseNotes', () => tree.collapseAll());
   command('collapseTags', () => tags.collapseAll());
   command('collapseFavorite', () => favorite.collapseAll());
+  const toggleShowArchived = () => queueNoteOperation(async () => {
+    const next = !showArchived;
+    await writeStatus('', { showArchived: next });
+    showArchived = next;
+    await tree.setShowArchived(showArchived);
+    await vscode.commands.executeCommand('setContext', 'fnote.showArchived', showArchived);
+  });
+  command('toggleShowArchived', toggleShowArchived);
+  command('toggleShowArchivedChecked', toggleShowArchived);
   command('toggleDateTagSort', () => {
     const index = dateTagSortModes.indexOf(currentDateTagSort());
     dateTagSortOverride = dateTagSortModes[(index + 1) % dateTagSortModes.length];

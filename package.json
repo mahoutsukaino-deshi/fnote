@@ -3,7 +3,7 @@
   "displayName": "fnote",
   "icon": "media/icon.png",
   "description": "Organize Markdown notes with hierarchies and tags.",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "publisher": "maoren",
   "engines": {
     "vscode": "^1.88.0"
@@ -62,7 +62,7 @@
     "commands": [
       {
         "command": "fnote.add",
-        "title": "fnote: Add Note",
+        "title": "Add Note",
         "icon": "$(add)"
       },
       {
@@ -127,62 +127,78 @@
       },
       {
         "command": "fnote.refresh",
-        "title": "fnote: Refresh",
+        "title": "Refresh",
         "icon": "$(refresh)"
       },
       {
+        "command": "fnote.toggleShowArchived",
+        "title": "Show Archived Notes",
+        "icon": {
+          "light": "media/light/checkbox-unchecked.svg",
+          "dark": "media/dark/checkbox-unchecked.svg"
+        }
+      },
+      {
+        "command": "fnote.toggleShowArchivedChecked",
+        "title": "Hide Archived Notes",
+        "icon": {
+          "light": "media/light/checkbox-checked.svg",
+          "dark": "media/dark/checkbox-checked.svg"
+        }
+      },
+      {
         "command": "fnote.search",
-        "title": "fnote: Search Notes",
+        "title": "Search Notes",
         "icon": "$(search)"
       },
       {
         "command": "fnote.collapseNotes",
-        "title": "fnote: Collapse All Notes",
+        "title": "Collapse All Notes",
         "icon": "$(collapse-all)",
         "enablement": "fnote.notesHasBranches"
       },
       {
         "command": "fnote.collapseTags",
-        "title": "fnote: Collapse All Tags",
+        "title": "Collapse All Tags",
         "icon": "$(collapse-all)",
         "enablement": "fnote.tagsHasBranches"
       },
       {
         "command": "fnote.collapseFavorite",
-        "title": "fnote: Collapse All Favorites",
+        "title": "Collapse All Favorites",
         "icon": "$(collapse-all)",
         "enablement": "fnote.favoriteHasBranches"
       },
       {
         "command": "fnote.expandNotes",
-        "title": "fnote: Expand All Notes",
+        "title": "Expand All Notes",
         "icon": "$(expand-all)",
         "enablement": "fnote.notesAllCollapsed && fnote.notesHasBranches"
       },
       {
         "command": "fnote.expandTags",
-        "title": "fnote: Expand All Tags",
+        "title": "Expand All Tags",
         "icon": "$(expand-all)",
         "enablement": "fnote.tagsAllCollapsed && fnote.tagsHasBranches"
       },
       {
         "command": "fnote.expandFavorite",
-        "title": "fnote: Expand All Favorites",
+        "title": "Expand All Favorites",
         "icon": "$(expand-all)",
         "enablement": "fnote.favoriteAllCollapsed && fnote.favoriteHasBranches"
       },
       {
         "command": "fnote.closeAllNotes",
-        "title": "fnote: Close All Open Notes",
+        "title": "Close All Open Notes",
         "icon": "$(close-all)"
       },
       {
         "command": "fnote.toggleDateTagSort",
-        "title": "fnote: Change Date Tag Sort"
+        "title": "Change Date Tag Sort"
       },
       {
         "command": "fnote.findInResults",
-        "title": "fnote: Find in Results"
+        "title": "Find in Results"
       },
       {
         "command": "fnote.addFavorite",
@@ -264,6 +280,16 @@
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "fnote.toggleShowArchived",
+          "when": "view == fnote.notes && !fnote.showArchived",
+          "group": "navigation@-1"
+        },
+        {
+          "command": "fnote.toggleShowArchivedChecked",
+          "when": "view == fnote.notes && fnote.showArchived",
+          "group": "navigation@-1"
+        },
         {
           "command": "fnote.add",
           "when": "view == fnote.notes",
@@ -407,6 +433,14 @@
         {
           "command": "fnote.favoriteDown",
           "when": "false"
+        },
+        {
+          "command": "fnote.toggleShowArchivedChecked",
+          "when": "fnote.showArchived"
+        },
+        {
+          "command": "fnote.toggleShowArchived",
+          "when": "!fnote.showArchived"
         }
       ]
     },

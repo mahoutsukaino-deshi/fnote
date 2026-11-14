@@ -11,6 +11,8 @@ fnote brings notes and work logs into VS Code. Keep project notes together and f
 
 ## How to use
 
+Hover over an icon button to see its action. The archive checkbox describes whether clicking will show or hide archived notes, and tree arrows describe whether they will expand or collapse the item.
+
 ### Create a note
 
 1. Open **Fnote** in the activity bar.
@@ -114,7 +116,9 @@ Choose **Archive** from a note’s context menu to toggle its state. **✓ Archi
 
 If the note has children, a confirmation asks whether to apply the change to the note and all its descendants. Changing a child does not change its parent.
 
-Archived notes stay in the note list but are excluded from tag results, tag counts, and work-time totals shown through tags. Their state is saved in a `.status` file in each note folder and follows the note when copied or moved.
+Starting in **v0.1.15**, use the checkbox beside the search and add icons in the **List** title bar to show or hide archived notes. Checked shows them (the default); unchecked hides them along with their headings and attachments. The choice is saved as `showArchived` in `.status` at the storage root and restored on the next launch. An unarchived child of a hidden archived note appears under its nearest visible ancestor, or at the top level, without moving its folder. This switch only affects **List**; favorites and keyword searches still include archived notes.
+
+Archived notes are excluded from tag results, tag counts, and work-time totals shown through tags. Their archive state is saved in a `.status` file in each note folder and follows the note when copied or moved.
 
 ## Settings
 

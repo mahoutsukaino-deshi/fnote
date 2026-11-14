@@ -28,7 +28,10 @@ test('VSIXに同梱するファイルだけで拡張機能を読み込める', a
       const assert = require('node:assert/strict');
       assert.equal(typeof require('./').activate, 'function');
     `], { cwd: packaged, stdio: 'pipe' });
-    for (const asset of ['media/notes.js', 'media/results.js', 'media/results.css', 'media/fnote.svg', 'media/codicons/codicon.css', 'media/codicons/codicon.ttf']) {
+    for (const asset of ['media/notes.js', 'media/results.js', 'media/results.css', 'media/fnote.svg',
+      'media/light/checkbox-checked.svg', 'media/light/checkbox-unchecked.svg',
+      'media/dark/checkbox-checked.svg', 'media/dark/checkbox-unchecked.svg',
+      'media/codicons/codicon.css', 'media/codicons/codicon.ttf']) {
       assert.ok((await fs.stat(path.join(packaged, asset))).size > 0, `${asset} must be packaged`);
     }
   } finally {

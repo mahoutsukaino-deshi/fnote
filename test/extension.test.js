@@ -330,6 +330,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
   try {
     const { activate } = require("../dist/extension");
     await activate(context);
+    assert.equal(contexts.get('fnote.showArchived'), true, '既定ではアーカイブ済みノートを表示する');
     const noteTabPattern = `${temp}/.fnote/**/index.md`;
     assert.deepEqual(labelSettings.get('patterns'), { '**/page.tsx': '${dirname}/page', [noteTabPattern]: '${dirname}' }, '保存先に限定したタブ名ルールを追加し、既存のルールを保持する');
     assert.equal(labelSettings.get('enabled'), true);
@@ -783,6 +784,26 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/.status"), "utf8")).archived, true);
     assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")).archived, true);
     assert.equal(tagRows.some((row) => row.id === "TODO"), false);
+    const archivedRows = noteRows;
+    const archiveStatus = await fs.readFile(path.join(temp, '.fnote/音楽/.status'), 'utf8');
+    await sidebarMessage({ type: 'select', id: parent.id });
+    await run('toggleShowArchivedChecked');
+    assert.equal(contexts.get('fnote.showArchived'), false);
+    assert.equal((await readRootStatus()).showArchived, false);
+    assert.ok(noteRows.every(row => row.id !== parent.id && !row.id.startsWith(`${parent.id}/`) && row.noteId !== parent.id));
+    assert.deepEqual(sidebar.selection, [], '非表示のノートを操作対象に残さない');
+    assert.equal(await fs.readFile(path.join(temp, '.fnote/音楽/.status'), 'utf8'), archiveStatus, '表示切替でアーカイブ状態を変更しない');
+    await run('open', parent.id);
+    assert.deepEqual(sidebar.selection, [], 'キーワード検索などから非表示ノートを開いても一覧では選択しない');
+    await run('refresh');
+    assert.ok(!noteRows.some(row => row.id === parent.id), '再スキャン後も非表示を維持する');
+    await run('toggleShowArchived');
+    assert.equal(contexts.get('fnote.showArchived'), true);
+    assert.equal((await readRootStatus()).showArchived, true);
+    assert.deepEqual(noteRows, archivedRows, '表示に戻すとノート・見出し・添付と元の階層を復元する');
+    await Promise.all([run('toggleShowArchived'), run('toggleShowArchivedChecked')]);
+    assert.equal(contexts.get('fnote.showArchived'), true, '連続クリックを順に適用する');
+    assert.equal((await readRootStatus()).showArchived, true);
     settings.set("archiveMark", "$(box)");
     settings.set("archiveColor", "#123456");
     await run("refresh");
@@ -795,6 +816,16 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     assert.equal(JSON.parse(await fs.readFile(path.join(temp, ".fnote/音楽/曲/.status"), "utf8")).archived, false);
     assert.ok(tagRows.some((row) => row.id === "TODO"));
     assert.equal(tagRows.find((row) => row.id === "TODO").description, "1");
+    await run('addFavorite', parent);
+    const favoriteBeforeHiding = favoriteSnapshot;
+    await run('toggleShowArchived');
+    assert.ok(!noteRows.some(row => row.id === parent.id));
+    assert.equal(noteRows.find(row => row.id === child.id).parent, '', '非表示の親の下にある未アーカイブの子も表示する');
+    assert.deepEqual(favoriteSnapshot, favoriteBeforeHiding, 'favoriteには一覧の表示切替を適用しない');
+    assert.equal(tagRows.find(row => row.id === 'TODO').description, '1');
+    await run('toggleShowArchivedChecked');
+    assert.equal(noteRows.find(row => row.id === child.id).parent, parent.id);
+    await run('removeFavorite', parent);
     await run("archive", child);
     assert.deepEqual(noteRows.find((row) => row.id === "音楽/曲").appearance, { mark: "$(box)", color: "#123456" });
     assert.equal(tagRows.some((row) => row.id === "TODO"), false);
@@ -1389,7 +1420,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     await run("refresh");
     await run("filter", "2026/09/13");
-    assert.equal((html.match(/詳細/g) || []).length, 1);
+    assert.equal((html.replace(/<[^>]*>/g, '').match(/詳細/g) || []).length, 1);
     assert.doesNotMatch(html, /class="content">##/);
     assert.match(html, /class="content">本文/);
     assert.match(html, /作業<\/button><span class="work-time">\(30m\)<\/span>/);
@@ -1854,6 +1885,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     );
     const savedNoteExpansion = ['音楽', '\0heading:音楽:7'];
     const savedFavoriteExpansion = [favoriteKey('音楽')];
+    const archivedRestartId = '音楽/再起動アーカイブ';
+    const archivedRestartFolder = path.join(storage, archivedRestartId);
+    await fs.mkdir(archivedRestartFolder, { recursive: true });
+    await fs.writeFile(path.join(archivedRestartFolder, 'index.md'), '# 再起動アーカイブ\n## 非表示見出し\n本文\n');
+    await fs.writeFile(path.join(archivedRestartFolder, '.status'), JSON.stringify({ archived: true }));
+    await fs.writeFile(path.join(archivedRestartFolder, 'attachment.txt'), '添付');
     await fs.appendFile(path.join(storage, '音楽/index.md'), '\n## 再起動の見出し\n本文\n');
     await run('refresh');
     let persistedHeading = noteRows.find(row => row.noteId === '音楽' && row.label === '再起動の見出し');
@@ -1865,10 +1902,12 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     await Promise.all([
       sidebarMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedNoteExpansion }),
       favoriteMessage({ type: 'expansionState', allCollapsed: true, hasBranches: true, collapsed: savedFavoriteExpansion }),
+      run('toggleShowArchived'),
     ]);
     const statusBeforeRestart = await readRootStatus();
     assert.deepEqual(statusBeforeRestart.collapsedNotes, savedNoteExpansion.slice().sort());
     assert.deepEqual(statusBeforeRestart.collapsedFavorite, savedFavoriteExpansion);
+    assert.equal(statusBeforeRestart.showArchived, false);
     // Ignore malformed entries when reading disk state on the next launch.
     await fs.writeFile(rootStatusPath, JSON.stringify({ ...statusBeforeRestart,
       collapsedNotes: [...savedNoteExpansion, 123], collapsedFavorite: [...savedFavoriteExpansion, false] }));
@@ -1879,6 +1918,7 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
       { uri: uri(path.join(temp, "another-workspace")) },
     ];
     await activate(context);
+    assert.equal(contexts.get('fnote.showArchived'), false, '保存したアーカイブ表示設定を再起動後も復元する');
     assert.equal(favoriteRows().length, 2, 'ノートと見出しのお気に入りを再起動後も復元する');
     const restoredHeading = favoriteSnapshot.find(row => row.shortcut && row.favoriteId === persistedHeading.favoriteId);
     assert.ok(restoredHeading);
@@ -1895,6 +1935,13 @@ test("拡張機能: 保存・再読込・子ノート移動・循環防止・検
     } });
     await restartedNoteMessage({ type: 'ready' });
     assert.deepEqual(restartedNotePayload.collapsed, savedNoteExpansion, 'ノート一覧の展開状態を.statusから復元する');
+    assert.ok(!restartedNotePayload.rows.some(row => row.id === archivedRestartId || row.id.startsWith(`${archivedRestartId}/`) || row.noteId === archivedRestartId),
+      '再起動後もアーカイブ済みノート・見出し・添付を非表示にする');
+    await run('toggleShowArchived');
+    assert.equal(contexts.get('fnote.showArchived'), true);
+    assert.equal(restartedNotePayload.rows.find(row => row.id === archivedRestartId).parent, '音楽');
+    assert.ok(restartedNotePayload.rows.some(row => row.noteId === archivedRestartId && row.label === '非表示見出し'));
+    assert.ok(restartedNotePayload.rows.some(row => row.id === `${archivedRestartId}/attachment.txt` && row.attachment));
     // Migrate the former globalState list only when .status has no favorite field.
     for (const subscription of context.subscriptions) subscription.dispose();
     context.subscriptions.length = 0;

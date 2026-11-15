@@ -2,7 +2,7 @@
 
 [日本語](CHANGELOG.ja.md)
 
-## v0.1.15 (planned)
+## v0.1.15
 
 - Show hover descriptions for icon buttons and clickable icons in List, Tags, favorites, and results. Describe the current action for archive visibility and tree expansion controls.
 - Add a checkbox beside the search and add icons in the List title bar to show or hide archived notes, including their headings and attachments. Show archived notes by default and save the choice in the storage root's `.status` for the next launch. Keep unarchived children visible under their nearest visible ancestor without changing their storage hierarchy. Favorites, keyword search, and tag filtering retain their existing behavior.

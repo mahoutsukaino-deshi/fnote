@@ -1,196 +1,71 @@
 # fnote
 
-**Write in Markdown. Organize in a hierarchy. Find with tags.**
+fnote is a VS Code extension for managing notes and work logs in Markdown.
 
-fnote brings notes and work logs into VS Code. Keep project notes together and find tasks or records across notes without leaving your editor.
+## Main features
 
-- **Organize naturally** with parent and child notes, headings, and drag and drop.
-- **Find what you need** with `@TODO`, date tags, and keyword search.
-- **Track your work** by writing dates and durations to see daily, monthly, and yearly totals.
-- **Keep your files** as local Markdown with attachments. By default, the same notes are available across workspaces.
+- Organize notes in a hierarchy
+  Create child notes within a note. Markdown headings can also appear in the note list.
+- Add tags
+  Create a tag by adding a word after `@`. For example, writing `@TODO` in a note creates a `TODO` tag.
+  Use the tag list to quickly find notes with a particular tag.
+- Date and time tags
+  Add tags such as `@2026/11/15 @11:00-12:00` to see yearly, monthly, and daily time totals for each note.
+- Add frequently used notes to your favorites.
+- Archive completed notes. You can choose whether archived notes appear in the note list.
+- Customize icons and colors in the note and tag lists. Icons can be text, emoji, or any of the icons listed at the following URL:
+  <https://microsoft.github.io/vscode-codicons/dist/codicon.html>
 
-## How to use
-
-Hover over an icon button to see its action. The archive checkbox describes whether clicking will show or hide archived notes, and tree arrows describe whether they will expand or collapse the item.
-
-### Create a note
-
-1. Open **Fnote** in the activity bar.
-2. Click **＋** in **List** and enter a note name.
-3. Write in the Markdown editor and save with `Cmd + S` on Mac or `Ctrl + S` on Windows.
-
-Editor tabs show the note's storage folder name instead of `index.md`. Changing the first line's `# Note name` and saving also renames the folder and updates the tab. Empty headings, invalid folder names, and names that conflict with an existing folder at the same level do not rename the folder. This uses custom editor labels in VS Code 1.88 or later, with a rule limited to fnote's storage location.
-
-```markdown
-# Today's work
-
-## Tasks
-@TODO Update the README
-@Work/Meetings Prepare the next agenda
-
-## Work log
-@2026/09/21 @30m Reorganized the documentation
-```
-
-![Create a note](media/screenshots/create-note.png)
-
-### Find notes
-
-Click `TODO` in **Tags** to see matching notes and lines. Click a result to return to that position in the original note. The number beside a tag counts matching notes, including child tags and excluding archived notes.
-
-![Find notes by tag](media/screenshots/tag-search.png)
-
-Write `@tag-name` in your notes; no registration is needed. Use `/` for a hierarchy, such as `@Work/Meetings`. Selecting a parent tag includes its children. Tags are case-sensitive and are ignored inside code, in email addresses, or when escaped as `\@`. Drag tags within the same level to reorder them.
-
-For keyword search, click the magnifying glass in **List**. It searches note names and content, ignoring case, and includes archived notes.
-
-Focus the tag or keyword results panel and press `Ctrl+F` (`Cmd+F` on macOS) to find text within the displayed results. Press `Enter` or the next arrow for the next match, and `Shift+Enter` or the previous arrow to go back. The find box shows your position and total matches and preserves the query and position across rerenders and tab switches. During IME composition, Enter confirms the text instead. Press `Escape` to close find. Highlights follow the standard editor's find theme colors.
-
-### Favorite notes
-
-Save shortcuts to frequently used notes or Markdown headings in **favorite**. Right-click a note or heading in the note list and select **Add to favorite**. Note shortcuts expand child notes and headings; heading shortcuts expand their descendant headings. Both use the same icons, colors, and collapsed tag priorities as the note list. Click a heading to jump to its position in the note. Attachments are hidden. A parent and child saved as separate favorites each have their own tree. Within **favorite**, drop a shortcut onto another shortcut to place it before that item, or into the empty space below the list to move it to the end. You can also use **Move Up / Move Down** in the context menu.
-
-To remove a registered shortcut, right-click it and select **Remove from favorite**. The original note and headings remain intact. Note favorites are stored in the `favorite` array of `.status` at the note storage root. Heading favorites and their display positions are stored separately in `.favorite-headings` so older versions sharing the storage cannot remove them. Existing favorites are migrated automatically. Favorites persist across restarts and follow notes renamed or moved within the extension. Editing a heading updates its favorite's name and destination while preserving the shortcut and its display order. Heading favorites also follow position changes caused by added body text. Headings with the same level and title are distinguished by their occurrence order.
-
-The note list and favorite save their expansion states separately in `collapsedNotes` and `collapsedFavorite` in `.status` at the storage root and restore them on the next launch. Headings and Collapse All / Expand All changes are included, and the two areas can be expanded and collapsed independently.
-
-### Organize and navigate
-
-Right-click a note for **Add Child Note**, **Rename**, **Move**, and **Delete**. Drag a note to a row’s center to make it a child, to its top or bottom edge to reorder it, or below the list to move it to the top level. Moving a parent also moves its children.
-
-Use `#`–`######` headings to divide a note into sections; click a heading in the list to jump to it. The first `#` heading supplies the note row's title; later `#` headings also appear in the list. **Rename** changes both the first `#` heading and the folder name.
-
-These shortcuts work while the note list has focus:
-
-| Action                                        | Mac               | Windows    |
-|-----------------------------------------------|-------------------|------------|
-| Create a note (a child if a note is selected) | `Cmd + N`         | `Ctrl + N` |
-| Rename a note or attachment                   | `F2`              | `F2`       |
-| Delete a note or attachment                   | `Cmd + Backspace` | `Delete`   |
-| Change selection                              | `↑` / `↓`         | `↑` / `↓`  |
-| Open the selected note or attachment          | `Enter`           | `Enter`    |
-
-Arrow keys change the selection without opening another note. `Enter` opens the item while keeping focus in the list. The open note’s background and the keyboard selection outline are shown separately.
-
-The tag list also keeps focus after opening tag results, so `↑` / `↓` can be used to move between tags without reaching for the mouse.
-
-Use the list’s title-bar buttons to expand or collapse everything, or close all open fnote notes and search results.
-
-## Useful features
-
-### Work-time totals
-
-Write exactly one date and a duration or time range on the **same line**:
-
-```markdown
-@2026/09/21 @30m Updated the documentation
-@2026/09/21 @10:00-11:00 Checked the workflow
-@2026/09/22 @1h Planned the next feature
-```
-
-Select `2026` → `09` → `21` in the tag list to see **1h30m** for that day. Select the month or year for a wider total.
-
-![Daily work-time total](media/screenshots/daily-total.png)
-
-Use `@YYYY/MM/DD` for dates, `@30m` or `@1h` for whole-number durations, and `@10:00-11:00` for time ranges. Time tags themselves do not appear in the tag list.
-
-Unfinished entries such as `@10:00` or `@10:00-` appear under **Incomplete time tags**, so you can find and complete them. They do not contribute to totals.
-
-Set `fnote.dateTagSort` to `"time"` to group tag results by date and sort individual entry lines by time across notes. This uses the same display as selecting a date year or month; regular tags use a date on the same line when present. Each entry is followed by its note and Markdown heading path, separated by ` / `, with duration totals. Click an entry to jump to its source line. Lines containing multiple times use the earliest time; untimed lines appear last within their date, and lines without a date appear in a final **No date** group. The **Sort** button in tag results switches between Notes and Time dynamically; `fnote.dateTagSort` provides the initial mode. The default `"note"` keeps the note-list order.
-
-Timeline entries display date and time first, followed by other tags such as `@TODO` and remaining text. Leading Markdown list markers are hidden.
-
-### Attachments and links
-
-Use **Add Attachment** in a note’s context menu, or hold **Shift** while dropping external files onto a note in the list or into its Markdown editor. The list also accepts folders. For editor drops, keep `editor.dropIntoEditor.enabled` enabled and choose **Copy attachments into fnote** if prompted.
-
-Attachments appear beneath their note and can be opened, renamed, deleted, or moved to another note by dragging within the list. Internal note and attachment drags do not require Shift.
-
-Link to another note with `[[../Travel]]` or `[Travel plans](../Travel)`. Use `[](#title)` to jump to a heading in the current note, or add the fragment to another note link. Ctrl+Click follows the link. Directory links open the `index.md` inside them. Supported relative Markdown and wiki links are updated when notes are moved or renamed.
-
-Links display an icon and their label or destination. Place the cursor on a link to edit its original syntax; the saved Markdown stays unchanged.
-
-### Archive finished notes
-
-Choose **Archive** from a note’s context menu to toggle its state. **✓ Archive** means it is archived; the default icon is a gray archive icon.
-
-If the note has children, a confirmation asks whether to apply the change to the note and all its descendants. Changing a child does not change its parent.
-
-Starting in **v0.1.15**, use the checkbox beside the search and add icons in the **List** title bar to show or hide archived notes. Checked shows them (the default); unchecked hides them along with their headings and attachments. The choice is saved as `showArchived` in `.status` at the storage root and restored on the next launch. An unarchived child of a hidden archived note appears under its nearest visible ancestor, or at the top level, without moving its folder. This switch only affects **List**; favorites and keyword searches still include archived notes.
-
-Archived notes are excluded from tag results, tag counts, and work-time totals shown through tags. Their archive state is saved in a `.status` file in each note folder and follows the note when copied or moved.
+![fnote_main](images/fnote.png)
 
 ## Settings
 
-Open VS Code Settings and search for **`@ext:maoren.fnote`**. For the JSON examples below, run **Preferences: Open User Settings (JSON)** and add the settings inside your existing `{ ... }`.
+Open VS Code Settings and search for `@ext:maoren.fnote` to display fnote's settings. To edit them as JSON, open **Preferences: Open User Settings (JSON)** from the Command Palette and add the settings inside your existing `{ ... }`.
 
-### Icons and colors
+| Setting                    | Default value                | Description                                                                                                                                                                  |
+|----------------------------|------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `fnote.storagePath`        | `"~/.fnote"`                 | Where notes are stored. Accepts an absolute path, a path starting with `~/`, or a path such as `${workspace}/.fnote`. An empty string uses the extension's storage location. |
+| `fnote.untaggedNoteMark`   | `"$(note)"`                  | Icon for notes without a tag eligible for use as the note icon.                                                                                                              |
+| `fnote.defaultTagMark`     | `"$(circle-filled-compact)"` | Default tag icon.                                                                                                                                                            |
+| `fnote.headingMark`        | `"#"`                        | Mark displayed before Markdown headings in the note list.                                                                                                                    |
+| `fnote.headingMarkColor`   | `"#808080"`                  | Color of the Markdown heading mark.                                                                                                                                          |
+| `fnote.dateTagSort`        | `"note"`                     | Initial display mode for tag results. `"note"` follows the note-list order; `"time"` groups entries by date and sorts them by time across notes.                             |
+| `fnote.linkMark`           | `"$(link-external)"`         | Link icon in the note editor and tag/search results.                                                                                                                         |
+| `fnote.attachmentMark`     | `"$(attach)"`                | Attachment icon in the note editor and note list.                                                                                                                            |
+| `fnote.attachmentColor`    | `""`                         | Attachment icon color. An empty string uses the current text color.                                                                                                          |
+| `fnote.archiveMark`        | `"$(archive)"`               | Icon for archived notes.                                                                                                                                                     |
+| `fnote.archiveColor`       | `"#808080"`                  | Icon color for archived notes.                                                                                                                                               |
+| `fnote.tagColor`           | `"#00BFFF"`                  | Default tag text color.                                                                                                                                                      |
+| `fnote.tagBackgroundColor` | `""`                         | Default tag background color in the note editor and search results. An empty string means no background color.                                                               |
+| `fnote.tagStyles`          | See below                    | Icons, text colors, and background colors for individual tags, and their priority when choosing note icons.                                                                  |
+| `fnote.tagHierarchy`       | `{}`                         | Tag groups. For example: `{ "Status": ["TODO", "Done"] }`. Selecting a parent tag finds notes matching its child tags without changing tag names in the note content.        |
 
-Use `fnote.tagStyles` for individual tags. Icons accept text, emoji, or VS Code icon names such as `$(book)`.
+Icons and marks accept text, emoji, or VS Code icon names such as `$(book)`. Set an empty string `""` to hide an icon or mark. Specify colors using color codes such as `"#FF5555"`.
 
-The available VS Code icons are listed in the [VS Code Codicons](https://microsoft.github.io/vscode-codicons/dist/codicon.html) reference.
+After changing `fnote.storagePath`, run **Developer: Reload Window**. `${workspace}` and `${workspaceFolder}` refer to the first workspace folder. Existing notes are not moved automatically, so copy your note folders when changing the storage location.
+
+### Per-tag settings
+
+The default value of `fnote.tagStyles` is:
 
 ```json
 {
   "fnote.tagStyles": [
-    { "tag": "TODO", "mark": "$(circle-filled-compact)", "markColor": "#FF5555", "color": "#FF5555" },
-    { "tag": "Done", "mark": "✅", "color": "#66BB6A" },
-    { "tag": "Reference", "mark": "$(book)", "excludeFromNoteMark": true },
+    { "tag": "FIX", "mark": "$(bug)", "color": "#f87171" },
+    { "tag": "TODO", "mark": "$(circle-filled-compact)", "color": "#f87171" },
     { "tag": "Incomplete time tags", "mark": "$(clock)", "color": "#fbbf24", "excludeFromNoteMark": true },
     { "tag": "date", "mark": "$(calendar)", "excludeFromNoteMark": true }
-  ],
-  "fnote.headingMark": "#",
-  "fnote.headingMarkColor": "#808080",
-  "fnote.archiveMark": "$(archive)",
-  "fnote.archiveColor": "#808080"
+  ]
 }
 ```
 
-`markColor` controls the icon color; `color` and `backgroundColor` control tag text and background. `date` applies to date tags. `excludeFromNoteMark` keeps a tag out of note-icon selection while leaving it in the tag list.
+| Field                 | Description                                                                                                                                          |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `tag`                 | Tag name without `@` (required). `date` applies to all date tags, and `Incomplete time tags` applies to unfinished time tags.                        |
+| `mark`                | Tag icon. Accepts text, emoji, or a VS Code icon name.                                                                                               |
+| `markColor`           | Icon color. If omitted, falls back to `color`, then ancestor tag colors, then an automatically generated color. Does not change the colors of emoji. |
+| `color`               | Tag text color.                                                                                                                                      |
+| `backgroundColor`     | Tag background color. An empty string means no background color.                                                                                     |
+| `excludeFromNoteMark` | Set to `true` to exclude this tag when choosing a note icon. Defaults to `false`. The tag still appears in the tag list.                             |
 
-Earlier entries have priority when choosing a note icon; date and time tags are excluded. Child tags inherit their parent’s icon unless overridden. Setting `fnote.tagStyles` replaces the default array, so include entries you want to keep. Appearance changes take effect without restarting.
-
-Entries with a missing or blank `mark` still participate in priority order. If the selected tag has no parent icon to inherit, it uses `fnote.defaultTagMark`.
-
-Icon shape and color are inherited independently. Color uses the child tag's `markColor`, then its `color`; if neither is set, it checks ancestors from nearest to farthest in the same order. If no color is set, it uses an automatically generated color.
-
-| Setting                                          | Purpose                                            |
-|--------------------------------------------------|----------------------------------------------------|
-| `fnote.untaggedNoteMark`                         | Icon for notes without an eligible tag (`$(note)`) |
-| `fnote.defaultTagMark`                           | Default tag icon (`$(circle-filled-compact)`)      |
-| `fnote.tagColor` / `fnote.tagBackgroundColor`    | Default tag text and background colors             |
-| `fnote.headingMark` / `fnote.headingMarkColor`   | Mark and color for Markdown headings in the note list (`#`, `#808080`) |
-| `fnote.dateTagSort`                              | Initial tag result order: `note` or `time`      |
-| `fnote.linkMark`                                 | Link icon (`$(link-external)`)                     |
-| `fnote.attachmentMark` / `fnote.attachmentColor` | Attachment icon (`$(attach)`) and color            |
-| `fnote.archiveMark` / `fnote.archiveColor`       | Archive icon (`$(archive)`) and color (`#808080`)  |
-
-### Group tags
-
-Group existing tags without changing the note text:
-
-```json
-{
-  "fnote.tagHierarchy": {
-    "Status": ["TODO", "Done"]
-  }
-}
-```
-
-Selecting **Status** shows notes matching either child tag.
-
-### Storage and backups
-
-Notes are stored as `<note folder>/index.md`, with child notes and attachments in the same folder. The default root is **`~/.fnote`**, shared across workspaces.
-
-To use the current workspace, set:
-
-```json
-{
-  "fnote.storagePath": "${workspace}/.fnote"
-}
-```
-
-You can also use `~/Documents/fnote` or an absolute path such as `C:/Users/your-name/Documents/fnote`. `${workspace}` and `${workspaceFolder}` refer to the first workspace folder. After changing the setting, run **Developer: Reload Window**.
-
-Existing notes are not moved automatically: save them and copy their folders to the new location before switching. To back up notes, attachments, archive states, and note ordering, copy the storage folder, including `.status` files. The root `.status` stores top-level note ordering, while each note's `.status` stores the ordering of its direct child notes.
+Entries earlier in the array have higher priority when choosing note icons. Child tags inherit their parent tag's settings and can override them individually. Setting `fnote.tagStyles` replaces the default array, so include any default entries you want to keep.

@@ -648,7 +648,7 @@
   "devDependencies": {
     "@types/node": "20.17.19",
     "@types/vscode": "1.85.0",
-    "@vscode/vsce": "^4.0.0",
+    "@vscode/vsce": "^4.1.1",
     "typescript": "5.7.3"
   },
   "repository": {
